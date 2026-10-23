@@ -144,6 +144,36 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   animation: telemetry-pulse 2s infinite;
 }
 
+.telemetry-dot.offline {
+  background-color: var(--color-amber);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+  animation: none;
+}
+
+.probe-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.probe-btn {
+  padding: 5px 9px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  background-color: #1A202C;
+  border: 1px solid var(--border-light);
+}
+
+.probe-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background-color: #1E293B;
+  color: var(--color-sky);
+  border: 1px solid var(--border-light);
+}
+
 @keyframes telemetry-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.5; transform: scale(0.85); }

