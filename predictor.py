@@ -6,7 +6,11 @@ import pandas as pd
 from feature_exactor import EXPECTED_FEATURES, extract_features, validate_features
 
 
-DEFAULT_MODEL_PATH = Path(__file__).with_name("deeplog_web_attack_model.pkl")
+DEFAULT_MODEL_PATH = (
+    Path(__file__).with_name("deeplog_web_attack_model.pkl.gz")
+    if Path(__file__).with_name("deeplog_web_attack_model.pkl.gz").exists()
+    else Path(__file__).with_name("deeplog_web_attack_model.pkl")
+)
 DEFAULT_FEATURES_PATH = Path(__file__).with_name("deeplog_features.pkl")
 DEFAULT_THRESHOLD = 0.45
 

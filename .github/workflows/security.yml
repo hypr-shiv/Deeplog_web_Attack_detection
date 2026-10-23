@@ -1,0 +1,140 @@
+name: DevSecOps Automated Security Gates
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # =========================================================================
+  # Gate 1: Automated Secrets Detection & Leaks Prevention
+  # =========================================================================
+  secret-scan:
+    name: "Gate 1: Secrets Scanning (Gitleaks)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks Detection
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================================
+  # Gate 2: SAST (Static Application Security Testing)
+  # =========================================================================
+  sast:
+    name: "Gate 2: SAST (Semgrep & Bandit)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit Security Analysis
+        run: |
+          bandit -r Deeplogs_Web_Attack/app Deeplogs_Web_Attack/feature_exactor.py -ll -ii
+
+      - name: Run Semgrep OWASP Top 10 Rules
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/owasp-top-ten
+            p/python
+            p/react
+            p/secrets
+
+  # =========================================================================
+  # Gate 3: SCA (Software Composition Analysis)
+  # =========================================================================
+  sca:
+    name: "Gate 3: Dependency Vulnerabilities (pip-audit & npm audit)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "Deeplogs_Web_Attack/frontend/package-lock.json"
+
+      - name: Run npm Audit
+        working-directory: Deeplogs_Web_Attack/frontend
+        run: |
+          npm audit --audit-level=high
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r Deeplogs_Web_Attack/requirements.txt || true
+
+  # =========================================================================
+  # Gate 4: Container Hardening & Image Vulnerability Scanning
+  # =========================================================================
+  container-scan:
+    name: "Gate 4: Container Vulnerabilities (Trivy)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Local Staging Image
+        run: |
+          docker build -t deeplog-backend:test Deeplogs_Web_Attack/
+
+      - name: Scan Image with Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "deeplog-backend:test"
+          format: "table"
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: "CRITICAL,HIGH"
+
+  # =========================================================================
+  # Gate 5: Dynamic API Security Testing (DAST) Baseline
+  # =========================================================================
+  dast:
+    name: "Gate 5: DAST Baseline Scan (OWASP ZAP)"
+    runs-on: ubuntu-latest
+    needs: [sast, sca]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Start DeepLog Test Server
+        run: |
+          pip install -r Deeplogs_Web_Attack/requirements.txt
+          python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 &
+          sleep 5
+
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: "http://127.0.0.1:8000"
+          rules_file_name: ".zap/rules.tsv"
+          allow_issue_writing: false
+          fail_action: false

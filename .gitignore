@@ -1,9 +1,29 @@
+# Frontend
 frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
+frontend/.vite/
+
+# Python
 __pycache__/
 *.py[cod]
+*$py.class
+*.so
+.venv/
+env/
+venv/
+*.log
+
+# Large uncompressed ML weights (>100MB exceeds GitHub limits; .pkl.gz is tracked instead)
 deeplog_web_attack_model.pkl
+
+# IDE & OS
 .vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Secrets & Environment
 .env
 .env.*
+!.env.example
