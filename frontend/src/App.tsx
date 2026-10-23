@@ -1,227 +1,1253 @@
-import { FormEvent, useState } from "react";
+import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
-  BarChart3,
-  Bell,
-  ChevronRight,
-  CircleHelp,
-  Eye,
-  Gauge,
-  Globe2,
-  KeyRound,
-  LayoutDashboard,
-  LockKeyhole,
-  LogOut,
-  Menu,
-  Network,
+  Check,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Download,
+  FileText,
+  Filter,
+  Globe,
+  MapPin,
+  Pause,
+  Play,
+  RotateCcw,
   Search,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  UserRound,
+  Server,
+  Shield,
+  ShieldAlert,
+  Terminal,
+  Upload,
+  User,
   X,
 } from "lucide-react";
 import {
   Area,
   AreaChart,
-  Bar,
-  BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 
-type Page = "Dashboard" | "Threat Map" | "Attack Events" | "Analytics" | "3D Network" | "ML Explainability" | "Settings";
+type Severity = "CRITICAL" | "WARNING" | "NORMAL";
 
-const navItems: { label: Page; icon: typeof LayoutDashboard }[] = [
-  { label: "Dashboard", icon: LayoutDashboard },
-  { label: "Threat Map", icon: Globe2 },
-  { label: "Attack Events", icon: AlertTriangle },
-  { label: "Analytics", icon: BarChart3 },
-  { label: "3D Network", icon: Network },
-  { label: "ML Explainability", icon: Sparkles },
-  { label: "Settings", icon: Settings },
+type LogEntry = {
+  id: number;
+  timestamp: string;
+  source_ip: string;
+  method: string;
+  endpoint: string;
+  status_code: number | string;
+  severity: Severity;
+  risk: "Critical" | "High" | "Medium" | "Low";
+  message: string;
+  location?: string | null;
+  country?: string | null;
+  city?: string | null;
+  asn?: string | null;
+  probability: number;
+  attack_type?: string;
+  features?: Record<string, unknown>;
+  raw_line?: string;
+  isNew?: boolean;
+};
+
+type GeoPin = {
+  ip: string;
+  country: string;
+  city: string;
+  latitude: number;
+  longitude: number;
+  attacks: number;
+  risk: "Critical" | "High" | "Medium";
+  asn: string;
+  threat_level: string;
+};
+
+type AnalystNote = {
+  id: string;
+  eventId: number;
+  author: string;
+  text: string;
+  timestamp: string;
+};
+
+// Initial fallback logs formatted in realistic enterprise syslog / weblog style
+const defaultLogs: LogEntry[] = [
+  {
+    id: 101,
+    timestamp: "2026-10-22 14:25:12",
+    source_ip: "45.33.22.11",
+    method: "POST",
+    endpoint: "/api/login",
+    status_code: 403,
+    severity: "CRITICAL",
+    risk: "Critical",
+    message: "SQL Injection attempt detected on /api/login: ' OR 1=1 --",
+    location: "Moscow, RU",
+    country: "Russia",
+    city: "Moscow",
+    asn: "AS4134 Chinanet / DigitalOcean",
+    probability: 98.4,
+    attack_type: "SQL Injection",
+    features: { url_length: 68, sql_keywords: 4, sql_comments: 2, url_entropy: 4.88, is_post: 1 },
+    raw_line: `[CRITICAL] 2026-10-22 14:25:12 | 45.33.22.11 | SQL Injection attempt detected on /api/login | Status: 403 | Location: Moscow, RU`,
+  },
+  {
+    id: 102,
+    timestamp: "2026-10-22 14:24:48",
+    source_ip: "185.74.22.91",
+    method: "GET",
+    endpoint: "/search?q=<script>alert(1)</script>",
+    status_code: 400,
+    severity: "CRITICAL",
+    risk: "High",
+    message: "Cross-site scripting (XSS) reflection payload inside query param 'q'",
+    location: "Mumbai, IN",
+    country: "India",
+    city: "Mumbai",
+    asn: "AS55836 Reliance Jio",
+    probability: 94.2,
+    attack_type: "Cross-Site Scripting",
+    features: { url_length: 54, script_tags: 2, alert_tokens: 1, url_entropy: 4.12, is_post: 0 },
+    raw_line: `[CRITICAL] 2026-10-22 14:24:48 | 185.74.22.91 | XSS vector payload in /search parameter | Status: 400 | Location: Mumbai, IN`,
+  },
+  {
+    id: 103,
+    timestamp: "2026-10-22 14:24:19",
+    source_ip: "103.45.18.204",
+    method: "GET",
+    endpoint: "/static/../../etc/passwd",
+    status_code: 404,
+    severity: "WARNING",
+    risk: "Medium",
+    message: "Path traversal probe targeting restricted system file path",
+    location: "Frankfurt, DE",
+    country: "Germany",
+    city: "Frankfurt",
+    asn: "AS24940 Hetzner Online GmbH",
+    probability: 76.5,
+    attack_type: "Path Traversal",
+    features: { url_length: 38, path_traversal_count: 2, sensitive_files: 1, url_entropy: 3.42, is_post: 0 },
+    raw_line: `[WARNING] 2026-10-22 14:24:19 | 103.45.18.204 | Directory traversal pattern in /static | Status: 404 | Location: Frankfurt, DE`,
+  },
+  {
+    id: 104,
+    timestamp: "2026-10-22 14:23:45",
+    source_ip: "192.168.1.45",
+    method: "POST",
+    endpoint: "/auth/session",
+    status_code: 200,
+    severity: "NORMAL",
+    risk: "Low",
+    message: "User 'admin' login successful | Session verified",
+    location: "Internal LAN",
+    country: "United States",
+    city: "Dallas",
+    asn: "AS7018 AT&T Services",
+    probability: 4.1,
+    attack_type: "Normal Traffic",
+    features: { url_length: 13, sql_keywords: 0, url_entropy: 2.11, is_post: 1 },
+    raw_line: `[INFO] 2026-10-22 14:23:45 | 192.168.1.45 | User 'admin' login successful | Status: 200`,
+  },
+  {
+    id: 105,
+    timestamp: "2026-10-22 14:23:01",
+    source_ip: "91.208.72.16",
+    method: "GET",
+    endpoint: "/api/v1/products?limit=20&page=1",
+    status_code: 200,
+    severity: "NORMAL",
+    risk: "Low",
+    message: "Standard catalog product retrieval request",
+    location: "London, UK",
+    country: "United Kingdom",
+    city: "London",
+    asn: "AS13037 Zen Internet",
+    probability: 2.8,
+    attack_type: "Normal Traffic",
+    features: { url_length: 33, sql_keywords: 0, url_entropy: 2.45, is_post: 0 },
+    raw_line: `[INFO] 2026-10-22 14:23:01 | 91.208.72.16 | Standard GET /api/v1/products | Status: 200 | Location: London, UK`,
+  },
+  {
+    id: 106,
+    timestamp: "2026-10-22 14:22:30",
+    source_ip: "142.250.190.46",
+    method: "GET",
+    endpoint: "/healthz",
+    status_code: 200,
+    severity: "NORMAL",
+    risk: "Low",
+    message: "Kubernetes ingress health-probe ping",
+    location: "Mountain View, US",
+    country: "United States",
+    city: "Mountain View",
+    asn: "AS15169 Google LLC",
+    probability: 1.2,
+    attack_type: "Normal Traffic",
+    features: { url_length: 8, sql_keywords: 0, url_entropy: 1.84, is_post: 0 },
+    raw_line: `[INFO] 2026-10-22 14:22:30 | 142.250.190.46 | Ingress probe /healthz | Status: 200`,
+  },
+  {
+    id: 107,
+    timestamp: "2026-10-22 14:21:55",
+    source_ip: "194.26.29.112",
+    method: "POST",
+    endpoint: "/admin/upload.php",
+    status_code: 403,
+    severity: "CRITICAL",
+    risk: "Critical",
+    message: "Arbitrary file upload exploit attempt (.php executable header)",
+    location: "Amsterdam, NL",
+    country: "Netherlands",
+    city: "Amsterdam",
+    asn: "AS49981 WorldStream B.V.",
+    probability: 96.8,
+    attack_type: "Malicious Upload",
+    features: { url_length: 22, executable_extension: 1, is_post: 1, url_entropy: 3.94 },
+    raw_line: `[CRITICAL] 2026-10-22 14:21:55 | 194.26.29.112 | Executable script upload to /admin/upload.php | Status: 403 | Location: Amsterdam, NL`,
+  },
+  {
+    id: 108,
+    timestamp: "2026-10-22 14:20:11",
+    source_ip: "172.56.21.8",
+    method: "GET",
+    endpoint: "/assets/app.min.js",
+    status_code: 304,
+    severity: "NORMAL",
+    risk: "Low",
+    message: "Cached static asset retrieval",
+    location: "null",
+    country: "United States",
+    city: "Seattle",
+    asn: "AS21928 T-Mobile USA",
+    probability: 1.9,
+    attack_type: "Normal Traffic",
+    features: { url_length: 18, url_entropy: 2.2 },
+    raw_line: `[INFO] 2026-10-22 14:20:11 | 172.56.21.8 | Asset request /assets/app.min.js | Status: 304 | Location: null`,
+  },
 ];
 
-function Login({ onLogin }: { onLogin: () => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(true);
-  const [error, setError] = useState("");
-  const [flipped, setFlipped] = useState(false);
+export default function App() {
+  const [logs, setLogs] = useState<LogEntry[]>(defaultLogs);
+  const [selectedLogId, setSelectedLogId] = useState<number>(101);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [severityFilter, setSeverityFilter] = useState<"ALL" | Severity>("ALL");
+  const [isStreaming, setIsStreaming] = useState(true);
+  const [latencyMs, setLatencyMs] = useState(45);
+  const [throughputEps, setThroughputEps] = useState(42.4);
+  const [notes, setNotes] = useState<AnalystNote[]>([
+    {
+      id: "note-1",
+      eventId: 101,
+      author: "Analyst Alex (Tier-2)",
+      text: "SQL injection payload targeting login auth handler. Source host IP flagged in abuse databases; recommended immediate IP quarantine.",
+      timestamp: "14:26:05",
+    },
+  ]);
+  const [currentNoteText, setCurrentNoteText] = useState("");
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [selectedGeoPin, setSelectedGeoPin] = useState<GeoPin | null>(null);
+  const [copiedCurl, setCopiedCurl] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!email.trim() || !password.trim()) {
-      setError("Enter your email and password to continue.");
-      return;
+  // Fetch backend historical events and map locations on mount
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/api/v1/events?limit=50")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && Array.isArray(data.items) && data.items.length > 0) {
+          const mapped: LogEntry[] = data.items.map((ev: any, index: number) => {
+            const isAttack = ev.prediction === "Attack";
+            const severity: Severity = isAttack
+              ? (ev.risk === "Critical" || ev.risk === "High" ? "CRITICAL" : "WARNING")
+              : "NORMAL";
+            return {
+              id: ev.id ?? 1000 + index,
+              timestamp: ev.timestamp
+                ? (ev.timestamp.includes("T") ? ev.timestamp.replace("T", " ").slice(0, 19) : ev.timestamp)
+                : "2026-10-22 14:20:00",
+              source_ip: ev.source_ip || "192.168.1.1",
+              method: ev.method || "GET",
+              endpoint: ev.endpoint || "/",
+              status_code: isAttack ? (ev.risk === "Critical" ? 403 : 400) : 200,
+              severity,
+              risk: ev.risk || (isAttack ? "High" : "Low"),
+              message: isAttack
+                ? `${ev.attack_type || "Malicious request"} detected on ${ev.endpoint || "/"}`
+                : `Normal ${ev.method || "GET"} request processed cleanly on ${ev.endpoint || "/"}`,
+              location: ev.city && ev.country ? `${ev.city}, ${ev.country}` : "Unknown",
+              country: ev.country || "Unknown",
+              city: ev.city || "Unknown",
+              asn: ev.source_ip?.startsWith("192.") || ev.source_ip?.startsWith("10.") ? "Internal RFC1918" : "AS15169 Public Transit",
+              probability: Math.round((ev.attack_probability ?? (isAttack ? 0.92 : 0.04)) * 1000) / 10,
+              attack_type: ev.attack_type || (isAttack ? "Suspicious Request" : "Normal Traffic"),
+              features: ev.features || {},
+              raw_line: `[${severity}] ${ev.timestamp || "2026-10-22"} | ${ev.source_ip || "Unknown"} | ${isAttack ? ev.attack_type : "Normal HTTP"} ${ev.endpoint} | Status: ${isAttack ? 403 : 200}`,
+            };
+          });
+          setLogs(mapped);
+          if (mapped[0]) setSelectedLogId(mapped[0].id);
+        }
+      })
+      .catch(() => {
+        // Backend offline or unreachable, default logs remain active
+      });
+  }, []);
+
+  // Live telemetry jitter & simulated real-time stream ingestion
+  useEffect(() => {
+    if (!isStreaming) return;
+    const interval = setInterval(() => {
+      // Jitter metrics
+      setLatencyMs((prev) => Math.min(85, Math.max(32, Math.round(prev + (Math.random() * 6 - 3)))));
+      setThroughputEps((prev) => Math.round((prev + (Math.random() * 2 - 1)) * 10) / 10);
+
+      // Randomly inject incoming live log
+      if (Math.random() > 0.45) {
+        const isMalicious = Math.random() < 0.28;
+        const newId = Date.now();
+        const nowStr = new Date().toISOString().replace("T", " ").slice(0, 19);
+        const maliciousEndpoints = [
+          "/api/v2/users/auth?id=1%20UNION%20SELECT%20password",
+          "/wp-admin/install.php",
+          "/actuator/env",
+          "/graphql?query={schema{types}}",
+          "/cgi-bin/test-cgi",
+        ];
+        const normalEndpoints = [
+          "/api/v1/inventory?status=active",
+          "/healthz",
+          "/static/css/theme.css",
+          "/api/v1/telemetry/heartbeat",
+          "/dashboard/analytics",
+        ];
+
+        const chosenEndpoint = isMalicious
+          ? maliciousEndpoints[Math.floor(Math.random() * maliciousEndpoints.length)]
+          : normalEndpoints[Math.floor(Math.random() * normalEndpoints.length)];
+
+        const ips = [
+          { ip: "185.191.171.4", country: "Russia", city: "St. Petersburg", asn: "AS48282 Serverel" },
+          { ip: "103.253.25.14", country: "India", city: "Bengaluru", asn: "AS133694 WebWerks" },
+          { ip: "45.154.255.89", country: "Germany", city: "Berlin", asn: "AS200019 Meerfarbig" },
+          { ip: "142.250.72.14", country: "United States", city: "Ashburn", asn: "AS15169 Google LLC" },
+          { ip: "203.0.113.19", country: "Brazil", city: "Sao Paulo", asn: "AS27699 Claro" },
+        ];
+        const chosenHost = ips[Math.floor(Math.random() * ips.length)];
+
+        const newLog: LogEntry = {
+          id: newId,
+          timestamp: nowStr,
+          source_ip: chosenHost.ip,
+          method: isMalicious ? "POST" : "GET",
+          endpoint: chosenEndpoint,
+          status_code: isMalicious ? 403 : 200,
+          severity: isMalicious ? "CRITICAL" : "NORMAL",
+          risk: isMalicious ? "Critical" : "Low",
+          message: isMalicious
+            ? `Anomalous pattern detected on ${chosenEndpoint}`
+            : `HTTP request processed without anomaly on ${chosenEndpoint}`,
+          location: `${chosenHost.city}, ${chosenHost.country}`,
+          country: chosenHost.country,
+          city: chosenHost.city,
+          asn: chosenHost.asn,
+          probability: isMalicious ? Math.round((0.88 + Math.random() * 0.1) * 1000) / 10 : Math.round(Math.random() * 15 * 10) / 10,
+          attack_type: isMalicious ? "Suspicious Payload Injection" : "Normal Traffic",
+          features: isMalicious
+            ? { url_length: chosenEndpoint.length, suspicious_tokens: 3, entropy: 4.62, method_post: 1 }
+            : { url_length: chosenEndpoint.length, suspicious_tokens: 0, entropy: 2.15, method_post: 0 },
+          raw_line: `[${isMalicious ? "CRITICAL" : "INFO"}] ${nowStr} | ${chosenHost.ip} | ${isMalicious ? "Malicious attack" : "Normal request"} ${chosenEndpoint} | Status: ${isMalicious ? 403 : 200}`,
+          isNew: isMalicious,
+        };
+
+        setLogs((prev) => [newLog, ...prev.slice(0, 99)]);
+      }
+    }, 2800);
+
+    return () => clearInterval(interval);
+  }, [isStreaming]);
+
+  // Selected Log
+  const selectedLog = useMemo(() => {
+    return logs.find((l) => l.id === selectedLogId) || logs[0];
+  }, [logs, selectedLogId]);
+
+  // Filtered Logs
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      const matchSeverity = severityFilter === "ALL" || log.severity === severityFilter;
+      const matchQuery =
+        !searchQuery.trim() ||
+        log.source_ip.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        log.endpoint.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        log.message.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (log.location && log.location.toLowerCase().includes(searchQuery.toLowerCase()));
+      return matchSeverity && matchQuery;
+    });
+  }, [logs, severityFilter, searchQuery]);
+
+  // Key Metrics
+  const totalEvents = logs.length;
+  const criticalThreats = logs.filter((l) => l.severity === "CRITICAL").length;
+  const warnings = logs.filter((l) => l.severity === "WARNING").length;
+  const normalCount = logs.filter((l) => l.severity === "NORMAL").length;
+
+  // Time-Series Area Chart data (Normal vs. Malicious traffic over time)
+  const timeSeriesData = useMemo(() => {
+    const buckets = 8;
+    const bucketSize = Math.max(1, Math.ceil(logs.length / buckets));
+    const data = [];
+    for (let i = 0; i < buckets; i++) {
+      const slice = logs.slice(i * bucketSize, (i + 1) * bucketSize);
+      if (slice.length === 0) break;
+      const malicious = slice.filter((l) => l.severity === "CRITICAL" || l.severity === "WARNING").length;
+      const normal = slice.filter((l) => l.severity === "NORMAL").length;
+      const sample = slice[slice.length - 1] || slice[0];
+      const timeStr = sample.timestamp ? sample.timestamp.slice(11, 16) : `14:0${i}`;
+      data.push({
+        time: timeStr,
+        malicious,
+        normal,
+      });
     }
-    setError("");
-    onLogin();
+    return data.reverse();
+  }, [logs]);
+
+  // Geolocation Pins (Aggregated attacker IPs)
+  const geoPins: GeoPin[] = useMemo(() => {
+    const pinMap: Record<string, GeoPin> = {};
+    const coords: Record<string, { lat: number; lng: number }> = {
+      Russia: { lat: 55.7558, lng: 37.6173 },
+      India: { lat: 19.076, lng: 72.8777 },
+      Germany: { lat: 50.1109, lng: 8.6821 },
+      Netherlands: { lat: 52.3676, lng: 4.9041 },
+      "United States": { lat: 38.9072, lng: -77.0369 },
+      Brazil: { lat: -23.5505, lng: -46.6333 },
+      China: { lat: 31.2304, lng: 121.4737 },
+      Japan: { lat: 35.6762, lng: 139.6503 },
+    };
+
+    logs
+      .filter((l) => l.severity === "CRITICAL" || l.severity === "WARNING")
+      .forEach((l) => {
+        const country = l.country || "Russia";
+        const city = l.city || "Unknown City";
+        const key = `${country}-${city}`;
+        const baseCoord = coords[country] || { lat: 40, lng: 10 };
+        if (!pinMap[key]) {
+          pinMap[key] = {
+            ip: l.source_ip,
+            country,
+            city,
+            latitude: baseCoord.lat,
+            longitude: baseCoord.lng,
+            attacks: 1,
+            risk: l.risk === "Critical" ? "Critical" : "High",
+            asn: l.asn || "AS15169 Transit Host",
+            threat_level: l.probability > 90 ? "CRITICAL (High Confidence)" : "ELEVATED",
+          };
+        } else {
+          pinMap[key].attacks += 1;
+        }
+      });
+
+    return Object.values(pinMap);
+  }, [logs]);
+
+  // Attacker Rankings
+  const topAttackers = useMemo(() => {
+    const counts: Record<string, { country: string; city: string; attacks: number; risk: string }> = {};
+    logs
+      .filter((l) => l.severity === "CRITICAL" || l.severity === "WARNING")
+      .forEach((l) => {
+        const key = `${l.city || "Unknown"}, ${l.country || "Unknown"}`;
+        if (!counts[key]) {
+          counts[key] = { country: l.country || "Unknown", city: l.city || "Unknown", attacks: 1, risk: l.risk };
+        } else {
+          counts[key].attacks += 1;
+        }
+      });
+    return Object.values(counts).sort((a, b) => b.attacks - a.attacks).slice(0, 6);
+  }, [logs]);
+
+  // Save Analyst Note
+  function handleSaveNote() {
+    if (!currentNoteText.trim() || !selectedLog) return;
+    const newNote: AnalystNote = {
+      id: `note-${Date.now()}`,
+      eventId: selectedLog.id,
+      author: "Analyst Alex (Tier-2)",
+      text: currentNoteText.trim(),
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    };
+    setNotes([newNote, ...notes]);
+    setCurrentNoteText("");
+  }
+
+  // Copy as cURL
+  function copyCurl() {
+    if (!selectedLog) return;
+    const curl = `curl -X ${selectedLog.method} "http://target.corp${selectedLog.endpoint}" -H "X-Forwarded-For: ${selectedLog.source_ip}" -H "User-Agent: Mozilla/5.0 DeepLog-Replay"`;
+    navigator.clipboard?.writeText(curl);
+    setCopiedCurl(true);
+    setTimeout(() => setCopiedCurl(false), 2000);
+  }
+
+  // Log Upload Handler
+  async function handleFileUpload(file: File) {
+    setUploading(true);
+    setUploadError("");
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/v1/logs/upload", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Upload validation failed");
+
+      if (Array.isArray(data.events) && data.events.length > 0) {
+        const uploadedLogs: LogEntry[] = data.events.map((ev: any, idx: number) => {
+          const isAttack = ev.prediction === "Attack";
+          const severity: Severity = isAttack
+            ? (ev.risk === "Critical" || ev.risk === "High" ? "CRITICAL" : "WARNING")
+            : "NORMAL";
+          return {
+            id: ev.id ?? 2000 + idx,
+            timestamp: ev.timestamp ? ev.timestamp.replace("T", " ").slice(0, 19) : "2026-10-22 14:00:00",
+            source_ip: ev.source_ip || "Unknown",
+            method: ev.method || "GET",
+            endpoint: ev.endpoint || "/",
+            status_code: isAttack ? (ev.risk === "Critical" ? 403 : 400) : 200,
+            severity,
+            risk: ev.risk || (isAttack ? "High" : "Low"),
+            message: isAttack
+              ? `${ev.attack_type || "Suspicious attack vector"} detected on ${ev.endpoint || "/"}`
+              : `Clean HTTP request on ${ev.endpoint || "/"}`,
+            location: ev.city && ev.country ? `${ev.city}, ${ev.country}` : "Unknown",
+            country: ev.country || "Unknown",
+            city: ev.city || "Unknown",
+            asn: "AS15169 External Ingestion",
+            probability: Math.round((ev.attack_probability ?? (isAttack ? 0.95 : 0.05)) * 1000) / 10,
+            attack_type: ev.attack_type || (isAttack ? "Classified Attack" : "Normal"),
+            features: ev.features || {},
+            raw_line: `[${severity}] ${ev.timestamp || "2026-10-22"} | ${ev.source_ip} | ${ev.endpoint} | Status: ${isAttack ? 403 : 200}`,
+          };
+        });
+        setLogs(uploadedLogs);
+        if (uploadedLogs[0]) setSelectedLogId(uploadedLogs[0].id);
+        setShowUploadModal(false);
+      }
+    } catch (err: any) {
+      setUploadError(err.message || "Failed to parse and classify log file.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // Export Incident Report
+  function downloadIncidentReport() {
+    const report = [
+      `========================================================================`,
+      `DEEPLOG SIEM - SECURITY OPERATIONS CENTER INCIDENT REPORT`,
+      `Timestamp: ${new Date().toISOString()}`,
+      `Lead Analyst: Alex Rivera (Tier-2 SOC)`,
+      `Total Processed Events: ${totalEvents}`,
+      `Confirmed Malicious Attacks: ${criticalThreats}`,
+      `Suspicious Anomalies: ${warnings}`,
+      `Safe/Normal Volume: ${normalCount}`,
+      `========================================================================\n`,
+      `TRIAGED MALICIOUS EVENTS:\n`,
+      ...logs
+        .filter((l) => l.severity === "CRITICAL")
+        .map(
+          (l) =>
+            `[${l.timestamp}] IP: ${l.source_ip} | Location: ${l.location} | Endpoint: ${l.endpoint} | Attack Type: ${l.attack_type} | Conf: ${l.probability}% | Status: ${l.status_code}`
+        ),
+      `\nANALYST INVESTIGATION NOTES:\n`,
+      ...notes.map((n) => `[${n.timestamp}] (${n.author}) Event #${n.eventId}: ${n.text}`),
+    ].join("\n");
+
+    const blob = new Blob([report], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `soc-incident-report-${Date.now()}.txt`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
-    <main className="login-page">
-      <div className="login-atmosphere" aria-hidden="true">
-        <div className="grid-lines" />
-        <div className="signal signal-one" />
-        <div className="signal signal-two" />
-        <div className="orbit orbit-one" />
-        <div className="orbit orbit-two" />
-      </div>
-      <header className="public-header">
-        <a className="brand" href="#login" aria-label="DeepLog home">
-          <span className="brand-mark"><ShieldCheck size={18} strokeWidth={2.4} /></span>
-          <span>DeepLog</span>
-        </a>
-        <span className="status-chip"><span className="status-dot" /> Systems operational</span>
+    <div className="soc-shell">
+      {/* Enterprise SOC Workstation Top Bar */}
+      <header className="soc-header">
+        <div className="soc-brand">
+          <div className="soc-brand-icon">
+            <Shield size={17} />
+          </div>
+          <span className="soc-brand-title">DeepLog SIEM</span>
+          <span className="soc-brand-badge">SOC CONSOLE v2.4</span>
+        </div>
+
+        {/* Live System Telemetry */}
+        <div className="soc-telemetry-bar">
+          <div className="telemetry-item">
+            <span className="telemetry-dot" />
+            <span>INGESTION ACTIVE</span>
+          </div>
+          <div className="telemetry-item">
+            <Clock size={13} />
+            <span>Latency: <strong>{latencyMs}ms</strong></span>
+          </div>
+          <div className="telemetry-item">
+            <Activity size={13} />
+            <span>Throughput: <strong>{throughputEps} EPS</strong></span>
+          </div>
+          <div className="telemetry-item">
+            <Server size={13} />
+            <span>Engine: <strong>DeepLog-RF-1.0</strong></span>
+          </div>
+        </div>
+
+        {/* Workstation Actions */}
+        <div className="soc-header-actions">
+          <button
+            className={`btn-secondary ${!isStreaming ? "active" : ""}`}
+            onClick={() => setIsStreaming(!isStreaming)}
+            title={isStreaming ? "Pause real-time stream" : "Resume real-time stream"}
+          >
+            {isStreaming ? <Pause size={14} /> : <Play size={14} />}
+            <span>{isStreaming ? "Pause Feed" : "Resume Feed"}</span>
+          </button>
+
+          <button
+            className="btn-primary"
+            onClick={() => setShowUploadModal(true)}
+            title="Ingest server log file (.csv, .log, .txt)"
+          >
+            <Upload size={14} />
+            <span>Ingest Log</span>
+          </button>
+
+          <button
+            className="btn-secondary"
+            onClick={downloadIncidentReport}
+            title="Download formatted SOC incident report"
+          >
+            <Download size={14} />
+            <span>Export Report</span>
+          </button>
+        </div>
       </header>
 
-      <section className="login-layout">
-        <div className="login-copy reveal reveal-delay-1">
-          <p className="eyebrow"><Activity size={15} /> Web attack intelligence</p>
-          <h1>See the signal<br /><em>before it spreads.</em></h1>
-          <p className="lede">A calmer, clearer view of the traffic moving through your applications.</p>
-          <div className="mini-metrics">
-            <div><strong>98.7%</strong><span>model confidence</span></div>
-            <div><strong>24/7</strong><span>event visibility</span></div>
+      {/* 3-Column Asymmetrical Responsive Grid */}
+      <main className="soc-grid-layout">
+        {/* ========================================================= */}
+        {/* LEFT COLUMN (30%): Live Log Stream */}
+        {/* ========================================================= */}
+        <section className="soc-col">
+          <div className="panel-header">
+            <h2 className="panel-title">
+              <Terminal size={15} style={{ color: "var(--color-blue)" }} />
+              <span>Live Log Stream</span>
+            </h2>
+            <span className="panel-meta">{filteredLogs.length} events filtered</span>
           </div>
-          <div className="signal-stage" aria-label="Live security telemetry animation">
-            <div className="stage-scan" />
-            <div className="stage-ring stage-ring-large" />
-            <div className="stage-ring stage-ring-small" />
-            <div className="stage-core"><ShieldCheck size={21} /></div>
-            <span className="stage-node node-a" />
-            <span className="stage-node node-b" />
-            <span className="stage-node node-c" />
-            <span className="stage-node node-d" />
-            <div className="stage-label label-a"><span>LIVE</span><strong>traffic pulse</strong></div>
-            <div className="stage-label label-b"><span>ML / 1.0</span><strong>threat signal</strong></div>
-          </div>
-        </div>
 
-        <div className={`login-card reveal reveal-delay-2 ${flipped ? "is-flipped" : ""}`} id="login" onClick={(event) => { if (!(event.target as HTMLElement).closest("button, input, label, a")) setFlipped((value) => !value); }} role="group" aria-label="DeepLog access panel">
-          <div className="login-card-inner">
-            <div className="login-face login-front">
-              <div className="card-heading">
-                <div className="icon-tile"><LockKeyhole size={19} /></div>
-                <div><p className="card-kicker">Secure workspace</p><h2>Welcome back</h2></div>
-              </div>
-              <p className="card-subtitle">Sign in to continue to your security command center.</p>
-              <form onSubmit={submit} noValidate>
-                <label htmlFor="email">Email or username</label>
-                <div className="input-wrap"><UserRound size={17} /><input id="email" type="text" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="analyst@company.com" autoComplete="username" /></div>
-                <label htmlFor="password">Password</label>
-                <div className="input-wrap"><KeyRound size={17} /><input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your password" autoComplete="current-password" /></div>
-                {error && <p className="form-error" role="alert"><AlertTriangle size={15} /> {error}</p>}
-                <div className="form-options">
-                  <label className="checkbox-label"><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> <span>Remember me</span></label>
-                  <button type="button" className="text-button">Forgot password?</button>
+          <div className="log-stream-container">
+            {/* Sticky Filter & Search Bar */}
+            <div className="log-filter-sticky">
+              <input
+                type="text"
+                className="log-search-input"
+                placeholder="Filter by IP, endpoint, message, or host..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+
+              <div className="filter-row">
+                <div className="filter-pills">
+                  <button
+                    className={`filter-pill ${severityFilter === "ALL" ? "active" : ""}`}
+                    onClick={() => setSeverityFilter("ALL")}
+                  >
+                    ALL
+                  </button>
+                  <button
+                    className={`filter-pill critical ${severityFilter === "CRITICAL" ? "active" : ""}`}
+                    onClick={() => setSeverityFilter("CRITICAL")}
+                  >
+                    CRITICAL
+                  </button>
+                  <button
+                    className={`filter-pill warning ${severityFilter === "WARNING" ? "active" : ""}`}
+                    onClick={() => setSeverityFilter("WARNING")}
+                  >
+                    WARNING
+                  </button>
+                  <button
+                    className={`filter-pill normal ${severityFilter === "NORMAL" ? "active" : ""}`}
+                    onClick={() => setSeverityFilter("NORMAL")}
+                  >
+                    NORMAL
+                  </button>
                 </div>
-                <button className="primary-button" type="submit">Enter DeepLog <ChevronRight size={17} /></button>
-              </form>
-              <p className="security-note"><ShieldCheck size={14} /> Protected with enterprise-grade access controls</p>
-              <button className="flip-hint" type="button" onClick={() => setFlipped(true)}>View workspace posture <ChevronRight size={14} /></button>
+
+                <button
+                  className="btn-icon"
+                  onClick={() => {
+                    setSearchQuery("");
+                    setSeverityFilter("ALL");
+                  }}
+                  title="Reset filters"
+                >
+                  <RotateCcw size={13} />
+                </button>
+              </div>
             </div>
-            <div className="login-face login-back">
-              <div className="back-glow" />
-              <div className="icon-tile"><Activity size={19} /></div>
-              <p className="card-kicker">DeepLog telemetry</p>
-              <h2>Clarity in every request.</h2>
-              <p className="card-subtitle">Your workspace connects model confidence, attack context, and event history in one calm view.</p>
-              <div className="posture-list"><span><i />24 feature signals online</span><span><i />Geo enrichment standing by</span><span><i />Model version 1.0.0 active</span></div>
-              <button className="primary-button back-button" type="button" onClick={() => setFlipped(false)}>Back to sign in <ChevronRight size={17} /></button>
+
+            {/* Scrollable Dense Log Feed */}
+            <div className="log-feed-scroll">
+              {filteredLogs.map((log) => {
+                const isSelected = selectedLog?.id === log.id;
+                const severityClass =
+                  log.severity === "CRITICAL"
+                    ? "severity-critical"
+                    : log.severity === "WARNING"
+                    ? "severity-warning"
+                    : "severity-normal";
+
+                const tagClass =
+                  log.severity === "CRITICAL"
+                    ? "tag-critical"
+                    : log.severity === "WARNING"
+                    ? "tag-warning"
+                    : "tag-normal";
+
+                return (
+                  <div
+                    key={log.id}
+                    className={`log-entry-row ${severityClass} ${isSelected ? "selected" : ""} ${
+                      log.isNew ? "is-new-malicious" : ""
+                    }`}
+                    onClick={() => setSelectedLogId(log.id)}
+                  >
+                    <div className="log-content-wrap">
+                      <div className="log-header-line">
+                        <span className={`severity-tag ${tagClass}`}>{log.severity}</span>
+                        <span className="log-timestamp">{log.timestamp.slice(11, 19)}</span>
+                        <span className="log-ip">{log.source_ip}</span>
+                        <span className="log-status-badge">HTTP {log.status_code}</span>
+                      </div>
+                      <div className="log-body-line">
+                        <span>{log.message}</span>
+                      </div>
+                      {log.location && log.location !== "null" && (
+                        <div className="log-geo-inline">
+                          <span>📍 {log.location}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {filteredLogs.length === 0 && (
+                <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "12px" }}>
+                  No log entries match the active search or severity filter.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        {/* ========================================================= */}
+        {/* CENTER COLUMN (45%): Analytics & Triage */}
+        {/* ========================================================= */}
+        <section className="soc-col">
+          <div className="panel-header">
+            <h2 className="panel-title">
+              <Activity size={15} style={{ color: "var(--color-emerald)" }} />
+              <span>Security Analytics & Triage</span>
+            </h2>
+            <span className="panel-meta">Last 60 Minutes · Active Triage</span>
+          </div>
+
+          <div className="center-column-container">
+            {/* Top: Normal vs Malicious Traffic Time-Series Area Chart */}
+            <div className="chart-panel-soc">
+              <div className="chart-header">
+                <h3 className="chart-title">Traffic Classification Volume (Over Time)</h3>
+                <div className="chart-legend-soc">
+                  <span>
+                    <i className="legend-dot-soc" style={{ backgroundColor: "var(--color-emerald)" }} />
+                    Normal Traffic
+                  </span>
+                  <span>
+                    <i className="legend-dot-soc" style={{ backgroundColor: "var(--color-red)" }} />
+                    Malicious Ingress
+                  </span>
+                </div>
+              </div>
+
+              <div style={{ height: 160, width: "100%" }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timeSeriesData} margin={{ top: 10, right: 10, left: -24, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="normalSocFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10B981" stopOpacity={0.4} />
+                        <stop offset="100%" stopColor="#10B981" stopOpacity={0.0} />
+                      </linearGradient>
+                      <linearGradient id="maliciousSocFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#EF4444" stopOpacity={0.45} />
+                        <stop offset="100%" stopColor="#EF4444" stopOpacity={0.0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="rgba(255,255,255,0.06)" vertical={false} />
+                    <XAxis dataKey="time" stroke="#64748B" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <YAxis stroke="#64748B" tick={{ fontSize: 10 }} axisLine={false} tickLine={false} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#1E2530",
+                        borderColor: "#3D4454",
+                        borderRadius: "6px",
+                        color: "#F1F5F9",
+                        fontSize: "11px",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="normal"
+                      name="Normal Requests"
+                      stroke="#10B981"
+                      fill="url(#normalSocFill)"
+                      strokeWidth={2}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="malicious"
+                      name="Malicious Threats"
+                      stroke="#EF4444"
+                      fill="url(#maliciousSocFill)"
+                      strokeWidth={2}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Middle: Key Metrics Cards */}
+            <div className="metrics-grid-soc">
+              <div className="metric-card-soc">
+                <span className="metric-label-soc">
+                  <span>TOTAL EVENTS</span>
+                  <Server size={13} />
+                </span>
+                <span className="metric-value-soc">{totalEvents.toLocaleString()}</span>
+                <span className="metric-foot-soc">Ingested in active session</span>
+              </div>
+
+              <div className="metric-card-soc">
+                <span className="metric-label-soc">
+                  <span>THREATS BLOCKED</span>
+                  <ShieldAlert size={13} style={{ color: "var(--color-red)" }} />
+                </span>
+                <span className="metric-value-soc danger">{criticalThreats}</span>
+                <span className="metric-foot-soc">Confirmed malicious attempts</span>
+              </div>
+
+              <div className="metric-card-soc">
+                <span className="metric-label-soc">
+                  <span>SUSPICIOUS</span>
+                  <AlertTriangle size={13} style={{ color: "var(--color-amber)" }} />
+                </span>
+                <span className="metric-value-soc warning">{warnings}</span>
+                <span className="metric-foot-soc">Anomalies under observation</span>
+              </div>
+
+              <div className="metric-card-soc">
+                <span className="metric-label-soc">
+                  <span>SAFE TRAFFIC</span>
+                  <CheckCircle2 size={13} style={{ color: "var(--color-emerald)" }} />
+                </span>
+                <span className="metric-value-soc success">{normalCount}</span>
+                <span className="metric-foot-soc">Clean authorized volume</span>
+              </div>
+            </div>
+
+            {/* Bottom: Detailed View of the Selected Log Entry */}
+            {selectedLog && (
+              <div className="triage-panel-soc">
+                <div className="triage-header">
+                  <div className="triage-title-group">
+                    <span
+                      className={`severity-tag ${
+                        selectedLog.severity === "CRITICAL"
+                          ? "tag-critical"
+                          : selectedLog.severity === "WARNING"
+                          ? "tag-warning"
+                          : "tag-normal"
+                      }`}
+                    >
+                      {selectedLog.severity}
+                    </span>
+                    <h3 className="chart-title" style={{ fontFamily: "var(--font-mono)" }}>
+                      Incident #{selectedLog.id} · {selectedLog.attack_type || selectedLog.method}
+                    </h3>
+                  </div>
+                  <span className="panel-meta">{selectedLog.timestamp}</span>
+                </div>
+
+                <div className="triage-content">
+                  {/* Technical Metadata Grid */}
+                  <div className="detail-grid-soc">
+                    <div className="detail-cell">
+                      <span className="detail-cell-label">Source IP</span>
+                      <span className="detail-cell-value" style={{ color: "var(--color-blue)" }}>
+                        {selectedLog.source_ip}
+                      </span>
+                    </div>
+
+                    <div className="detail-cell">
+                      <span className="detail-cell-label">HTTP Method</span>
+                      <span className="detail-cell-value">{selectedLog.method}</span>
+                    </div>
+
+                    <div className="detail-cell">
+                      <span className="detail-cell-label">HTTP Status</span>
+                      <span className="detail-cell-value">{selectedLog.status_code}</span>
+                    </div>
+
+                    <div className="detail-cell">
+                      <span className="detail-cell-label">Origin Location</span>
+                      <span className="detail-cell-value" style={{ color: "var(--color-purple)" }}>
+                        {selectedLog.location || "Internal / RFC1918"}
+                      </span>
+                    </div>
+
+                    <div className="detail-cell" style={{ gridColumn: "span 2" }}>
+                      <span className="detail-cell-label">Target Endpoint</span>
+                      <span className="detail-cell-value" title={selectedLog.endpoint}>
+                        {selectedLog.endpoint}
+                      </span>
+                    </div>
+
+                    <div className="detail-cell" style={{ gridColumn: "span 2" }}>
+                      <span className="detail-cell-label">Network ASN / Provider</span>
+                      <span className="detail-cell-value">{selectedLog.asn || "Unassigned Transit"}</span>
+                    </div>
+                  </div>
+
+                  {/* ML Model Signals & Feature Assessment */}
+                  <div className="ml-assessment-box">
+                    <div className="ml-assessment-header">
+                      <span>
+                        ML Model Verdict:{" "}
+                        <strong
+                          style={{
+                            color:
+                              selectedLog.severity === "CRITICAL"
+                                ? "var(--color-red)"
+                                : selectedLog.severity === "WARNING"
+                                ? "var(--color-amber)"
+                                : "var(--color-emerald)",
+                          }}
+                        >
+                          {selectedLog.severity === "CRITICAL"
+                            ? "MALICIOUS (High Confidence)"
+                            : selectedLog.severity === "WARNING"
+                            ? "SUSPICIOUS / ELEVATED"
+                            : "SAFE / BENIGN"}
+                        </strong>
+                      </span>
+                      <span style={{ fontFamily: "var(--font-mono)" }}>
+                        Confidence: <strong>{selectedLog.probability}%</strong> (Threshold: 45.0%)
+                      </span>
+                    </div>
+
+                    <div className="confidence-bar-track">
+                      <div
+                        className="confidence-bar-fill"
+                        style={{
+                          width: `${Math.min(100, Math.max(5, selectedLog.probability))}%`,
+                          backgroundColor:
+                            selectedLog.probability > 75
+                              ? "var(--color-red)"
+                              : selectedLog.probability > 45
+                              ? "var(--color-amber)"
+                              : "var(--color-emerald)",
+                        }}
+                      />
+                    </div>
+
+                    {selectedLog.features && Object.keys(selectedLog.features).length > 0 && (
+                      <div className="signals-chip-list">
+                        {Object.entries(selectedLog.features).map(([key, val]) => (
+                          <span key={key} className="signal-chip-soc">
+                            <span style={{ color: "var(--text-muted)" }}>{key}:</span>
+                            <span style={{ color: Number(val) > 0 ? "var(--color-red)" : "var(--text-primary)" }}>
+                              {String(val)}
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Analyst Notes Section */}
+                  <div className="analyst-notes-section">
+                    <div className="analyst-notes-header">
+                      <span style={{ fontSize: "12px", fontWeight: 600 }}>
+                        Analyst Investigation Notes (Incident #{selectedLog.id})
+                      </span>
+                      <span className="panel-meta">Saved to incident registry</span>
+                    </div>
+
+                    <textarea
+                      className="notes-textarea"
+                      placeholder="Add investigation findings, triage status, firewall quarantine actions, or ISP escalations..."
+                      value={currentNoteText}
+                      onChange={(e) => setCurrentNoteText(e.target.value)}
+                    />
+
+                    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                      <button className="btn-primary" onClick={handleSaveNote} disabled={!currentNoteText.trim()}>
+                        <Check size={13} />
+                        <span>Save Note</span>
+                      </button>
+                    </div>
+
+                    {/* Saved Notes History for this incident */}
+                    {notes.filter((n) => n.eventId === selectedLog.id).length > 0 && (
+                      <div className="saved-notes-list">
+                        {notes
+                          .filter((n) => n.eventId === selectedLog.id)
+                          .map((n) => (
+                            <div key={n.id} className="saved-note-item">
+                              <div className="saved-note-meta">
+                                <span>{n.author}</span>
+                                <span>{n.timestamp}</span>
+                              </div>
+                              <div style={{ color: "#E2E8F0" }}>{n.text}</div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Quick Triage Actions */}
+                  <div className="triage-actions-bar">
+                    <button className="btn-danger" onClick={() => alert(`IP ${selectedLog.source_ip} queued for boundary firewall quarantine.`)}>
+                      <ShieldAlert size={13} />
+                      <span>Quarantine IP</span>
+                    </button>
+                    <button className="btn-secondary" onClick={copyCurl}>
+                      {copiedCurl ? <Check size={13} /> : <Copy size={13} />}
+                      <span>{copiedCurl ? "cURL Copied" : "Copy cURL"}</span>
+                    </button>
+                    <button className="btn-secondary" onClick={() => alert(`Host ${selectedLog.source_ip} added to review queue.`)}>
+                      <span>Tag False Positive</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* ========================================================= */}
+        {/* RIGHT COLUMN (25%): Attacker Geolocation */}
+        {/* ========================================================= */}
+        <section className="soc-col">
+          <div className="panel-header">
+            <h2 className="panel-title">
+              <Globe size={15} style={{ color: "var(--color-purple)" }} />
+              <span>Attacker Geolocation</span>
+            </h2>
+            <span className="panel-meta">{geoPins.length} attack origins</span>
+          </div>
+
+          <div className="right-column-container">
+            {/* Interactive Dark Map with Purple Pins (#8B5CF6) */}
+            <div className="geo-map-box">
+              <img src="/world-map.png" alt="World map" className="world-svg-bg" />
+
+              {/* Render Purple Pins for Attack Coordinates */}
+              {geoPins.map((pin) => {
+                // Map lat/long [-180..180, -90..90] to percentage on canvas
+                const left = `${Math.min(96, Math.max(4, ((pin.longitude + 180) / 360) * 100))}%`;
+                const top = `${Math.min(94, Math.max(6, ((90 - pin.latitude) / 180) * 100))}%`;
+
+                return (
+                  <div
+                    key={`${pin.country}-${pin.city}`}
+                    className="map-pin-purple"
+                    style={{ left, top }}
+                    onClick={() => setSelectedGeoPin(pin)}
+                    title={`${pin.city}, ${pin.country} (${pin.attacks} attacks)`}
+                  >
+                    <div className="pin-pulse" />
+                    <div className="pin-core" />
+                  </div>
+                );
+              })}
+
+              {/* Tooltip on Clicking Pin */}
+              {selectedGeoPin && (
+                <div className="map-tooltip-soc">
+                  <div>
+                    <span style={{ color: "var(--text-muted)" }}>Source IP:</span>{" "}
+                    <strong style={{ color: "var(--color-blue)" }}>{selectedGeoPin.ip}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--text-muted)" }}>Threat Level:</span>{" "}
+                    <strong style={{ color: "var(--color-red)" }}>{selectedGeoPin.threat_level}</strong>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--text-muted)" }}>Location:</span>{" "}
+                    <span>
+                      {selectedGeoPin.city}, {selectedGeoPin.country}
+                    </span>
+                  </div>
+                  <div>
+                    <span style={{ color: "var(--text-muted)" }}>Attacks:</span>{" "}
+                    <strong style={{ color: "var(--color-purple)" }}>{selectedGeoPin.attacks}</strong>
+                  </div>
+                  <div style={{ gridColumn: "span 2", borderTop: "1px solid #333D4D", paddingTop: 4, marginTop: 2 }}>
+                    <span style={{ color: "var(--text-muted)" }}>ASN:</span> {selectedGeoPin.asn}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Attacker Origin Rankings */}
+            <div className="panel-header" style={{ borderTop: "1px solid var(--border-subtle)", background: "#181D24" }}>
+              <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-secondary)", letterSpacing: "0.04em" }}>
+                TOP ATTACKING ORIGINS
+              </span>
+              <span className="panel-meta">Confirmed Attacker IPs</span>
+            </div>
+
+            <div className="attacker-table-container">
+              {topAttackers.map((origin, idx) => (
+                <div
+                  key={`${origin.country}-${origin.city}`}
+                  className="attacker-row-soc"
+                  onClick={() => {
+                    const pin = geoPins.find((p) => p.city === origin.city && p.country === origin.country);
+                    if (pin) setSelectedGeoPin(pin);
+                  }}
+                >
+                  <div className="attacker-origin">
+                    <span style={{ color: "var(--text-muted)", width: 18 }}>0{idx + 1}</span>
+                    <MapPin size={13} style={{ color: "var(--color-purple)" }} />
+                    <span style={{ fontWeight: 500 }}>
+                      {origin.city}, {origin.country}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className="attacker-badge-purple">{origin.attacks} attacks</span>
+                    <span
+                      className={`severity-tag ${
+                        origin.risk === "Critical" ? "tag-critical" : "tag-warning"
+                      }`}
+                      style={{ fontSize: "9px" }}
+                    >
+                      {origin.risk}
+                    </span>
+                  </div>
+                </div>
+              ))}
+
+              {topAttackers.length === 0 && (
+                <div style={{ padding: "1.5rem", textAlign: "center", color: "var(--text-muted)", fontSize: "11px" }}>
+                  No attack origin data recorded in current session.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* Log Ingest Modal */}
+      {showUploadModal && (
+        <div className="modal-overlay-soc" onClick={() => setShowUploadModal(false)}>
+          <div className="modal-box-soc" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header-soc">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Upload size={16} style={{ color: "var(--color-blue)" }} />
+                <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 600 }}>Ingest Server Log File</h3>
+              </div>
+              <button className="btn-icon" onClick={() => setShowUploadModal(false)}>
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="modal-body-soc">
+              <p style={{ margin: 0, color: "var(--text-secondary)", fontSize: "13px" }}>
+                Upload server logs (CSV, Nginx/Apache Combined access.log, or syslog). DeepLog will parse every line,
+                generate 24 ML features, classify malicious vectors, and enrich geo-origins.
+              </p>
+
+              <div
+                className="dropzone-soc"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (e.dataTransfer.files[0]) handleFileUpload(e.dataTransfer.files[0]);
+                }}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: "none" }}
+                  accept=".csv,.log,.txt,text/plain,text/csv"
+                  onChange={(e) => {
+                    if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
+                  }}
+                />
+                <Upload size={28} style={{ color: "var(--color-blue)" }} />
+                <strong style={{ fontSize: "14px" }}>Select or drag and drop server log</strong>
+                <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                  Supported formats: CSV, Apache/Nginx Combined Log, Syslog
+                </span>
+              </div>
+
+              {uploading && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--color-blue)", fontSize: "12px" }}>
+                  <Activity size={14} className="animate-spin" />
+                  <span>Processing logs through Random Forest classifier & GeoIP resolver...</span>
+                </div>
+              )}
+
+              {uploadError && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--color-red)", fontSize: "12px" }}>
+                  <AlertTriangle size={14} />
+                  <span>{uploadError}</span>
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button className="btn-secondary" onClick={() => setShowUploadModal(false)}>
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </section>
-      <footer className="login-footer"><span>© 2026 DeepLog</span><span>Detection · Context · Clarity</span></footer>
-    </main>
+      )}
+    </div>
   );
 }
-
-function Dashboard({ onLogout }: { onLogout: () => void }) {
-  const [page, setPage] = useState<Page>("Dashboard");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const activePage = page === "Dashboard" ? "Overview" : page;
-
-  return (
-    <main className="app-shell">
-      <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
-        <div className="sidebar-top"><a className="brand" href="#overview"><span className="brand-mark"><ShieldCheck size={18} /></span><span>DeepLog</span></a><button className="icon-button mobile-close" onClick={() => setSidebarOpen(false)} aria-label="Close navigation"><X size={18} /></button></div>
-        <div className="workspace-switcher"><span className="workspace-avatar">A</span><span><strong>Atlas workspace</strong><small>Security operations</small></span><ChevronRight size={15} /></div>
-        <nav className="sidebar-nav" aria-label="Main navigation"><p className="nav-label">Workspace</p>{navItems.map(({ label, icon: Icon }) => <button key={label} className={`nav-item ${page === label ? "active" : ""}`} onClick={() => { setPage(label); setSidebarOpen(false); }}><Icon size={17} /><span>{label}</span>{label === "Attack Events" && <span className="nav-count">12</span>}</button>)}</nav>
-        <div className="sidebar-bottom"><div className="help-box"><CircleHelp size={18} /><span><strong>Need a hand?</strong><small>Read the analyst guide</small></span></div><button className="nav-item logout" onClick={onLogout}><LogOut size={17} /><span>Sign out</span></button></div>
-      </aside>
-      {sidebarOpen && <button className="sidebar-scrim" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
-      <section className="main-content">
-        <header className="app-header"><button className="icon-button menu-button" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={20} /></button><div><p className="breadcrumb">Workspace <ChevronRight size={13} /> {activePage}</p><h1>{page === "Dashboard" ? "Good morning, Alex" : page}</h1></div><div className="header-actions"><button className="icon-button" aria-label="Search"><Search size={18} /></button><button className="icon-button notification-button" aria-label="Notifications"><Bell size={18} /><span /></button><div className="profile"><span className="profile-avatar">AR</span><span><strong>Alex Rivera</strong><small>Administrator</small></span></div></div></header>
-        {page === "Dashboard" ? <HomeOverview /> : <Placeholder page={page} />}
-      </section>
-    </main>
-  );
-}
-
-const trafficData = [
-  { time: "00:00", attack: 280, normal: 920 }, { time: "04:00", attack: 410, normal: 1100 },
-  { time: "08:00", attack: 360, normal: 980 }, { time: "12:00", attack: 690, normal: 1260 },
-  { time: "16:00", attack: 540, normal: 1180 }, { time: "20:00", attack: 820, normal: 1420 },
-  { time: "Now", attack: 760, normal: 1510 },
-];
-const riskData = [{ name: "Critical", value: 12, color: "#ff8f82" }, { name: "High", value: 68, color: "#f4c77a" }, { name: "Medium", value: 174, color: "#7dc8ff" }, { name: "Low", value: 2087, color: "#8fffd4" }];
-const endpointData = [{ name: "/login", attacks: 842 }, { name: "/admin", attacks: 604 }, { name: "/search", attacks: 391 }, { name: "/upload", attacks: 228 }, { name: "/api/users", attacks: 184 }];
-const countryData = [{ name: "India", attacks: 842 }, { name: "United States", attacks: 604 }, { name: "Germany", attacks: 391 }, { name: "Brazil", attacks: 228 }, { name: "Singapore", attacks: 184 }];
-
-function HomeOverview() {
-  return <div className="dashboard-content home-overview">
-    <div className="overview-row reveal"><div><p className="eyebrow"><Gauge size={15} /> Security overview</p><p className="section-intro">A live summary of the traffic crossing your protected applications.</p></div><button className="filter-button">Last 24 hours <ChevronRight size={15} /></button></div>
-    <div className="home-metrics reveal reveal-delay-1"><HomeMetric label="Requests" value="125,430" delta="+12.8%" tone="mint" icon={<Activity size={18} />} /><HomeMetric label="Attacks" value="18,240" delta="+8.4%" tone="coral" icon={<AlertTriangle size={18} />} /><HomeMetric label="Normal" value="107,190" delta="85.5% of traffic" tone="blue" icon={<ShieldCheck size={18} />} /><HomeMetric label="High Risk" value="2,341" delta="12 critical" tone="amber" icon={<Bell size={18} />} /></div>
-    <div className="home-chart-grid reveal reveal-delay-2"><div className="panel home-chart-panel"><div className="panel-heading"><div><p className="panel-kicker">Traffic classification</p><h2>Attack vs Normal traffic</h2></div><span className="live-indicator"><span /> Live</span></div><ResponsiveContainer width="100%" height={250}><AreaChart data={trafficData} margin={{ top: 20, right: 8, left: -24, bottom: 0 }}><defs><linearGradient id="attackGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#ff8f82" stopOpacity={.45} /><stop offset="100%" stopColor="#ff8f82" stopOpacity={0} /></linearGradient><linearGradient id="normalGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#8fffd4" stopOpacity={.3} /><stop offset="100%" stopColor="#8fffd4" stopOpacity={0} /></linearGradient></defs><CartesianGrid stroke="rgba(209,238,224,.09)" vertical={false} /><XAxis dataKey="time" stroke="#61766c" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} /><YAxis stroke="#61766c" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} /><Tooltip contentStyle={{ background: "#172427", border: "1px solid rgba(143,255,212,.24)", borderRadius: 8, color: "#e6f0e9", fontSize: 11 }} /><Area type="monotone" dataKey="normal" name="Normal" stroke="#8fffd4" fill="url(#normalGradient)" strokeWidth={2} /><Area type="monotone" dataKey="attack" name="Attack" stroke="#ff8f82" fill="url(#attackGradient)" strokeWidth={2} /></AreaChart></ResponsiveContainer><ChartLegend items={[["Normal", "#8fffd4"], ["Attack", "#ff8f82"]]} /></div><div className="panel home-chart-panel"><div className="panel-heading"><div><p className="panel-kicker">Detection volume</p><h2>Attack trend over time</h2></div><span className="trend-value">+18.2%</span></div><ResponsiveContainer width="100%" height={250}><BarChart data={trafficData} margin={{ top: 20, right: 0, left: -24, bottom: 0 }}><CartesianGrid stroke="rgba(209,238,224,.09)" vertical={false} /><XAxis dataKey="time" stroke="#61766c" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} /><YAxis stroke="#61766c" tick={{ fontSize: 9 }} axisLine={false} tickLine={false} /><Tooltip contentStyle={{ background: "#172427", border: "1px solid rgba(143,255,212,.24)", borderRadius: 8, color: "#e6f0e9", fontSize: 11 }} /><Bar dataKey="attack" name="Attacks" fill="#8fffd4" radius={[4, 4, 0, 0]} /></BarChart></ResponsiveContainer><p className="chart-note">Peak activity recorded at 20:00 UTC</p></div></div>
-    <div className="home-analysis-grid reveal reveal-delay-3"><div className="panel risk-distribution"><div className="panel-heading"><div><p className="panel-kicker">Risk distribution</p><h2>Threat levels</h2></div></div><div className="risk-chart"><ResponsiveContainer width="48%" height={150}><PieChart><Pie data={riskData} dataKey="value" innerRadius={43} outerRadius={61} paddingAngle={3} stroke="none">{riskData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}</Pie></PieChart></ResponsiveContainer><div className="risk-total"><strong>2,341</strong><span>high risk events</span></div></div><div className="risk-legend compact-legend">{riskData.map((entry) => <span key={entry.name}><i style={{ background: entry.color }} />{entry.name}<b>{entry.value.toLocaleString()}</b></span>)}</div></div><div className="panel ranking-panel"><div className="panel-heading"><div><p className="panel-kicker">Top attacked endpoints</p><h2>Where attacks land</h2></div><Network size={17} className="panel-accent" /></div><RankingList data={endpointData} /></div><div className="panel ranking-panel"><div className="panel-heading"><div><p className="panel-kicker">Top source countries</p><h2>Origin overview</h2></div><Globe2 size={17} className="panel-accent" /></div><RankingList data={countryData} /></div></div>
-    <div className="panel recent-events-panel reveal reveal-delay-3"><div className="panel-heading"><div><p className="panel-kicker">Investigation queue</p><h2>Recent events</h2></div><button className="view-all">View all <ChevronRight size={15} /></button></div><div className="recent-table"><div className="recent-row recent-head"><span>Time</span><span>Source IP</span><span>Endpoint</span><span>Status</span><span>Risk</span></div><RecentEvent time="10:42" ip="185.74.22.91" endpoint="/login" status="Attack" risk="High" /><RecentEvent time="10:41" ip="103.45.18.204" endpoint="/products" status="Normal" risk="Low" /><RecentEvent time="10:39" ip="45.129.88.14" endpoint="/admin" status="Attack" risk="Critical" /></div></div>
-  </div>;
-}
-
-function HomeMetric({ label, value, delta, tone, icon }: { label: string; value: string; delta: string; tone: string; icon: React.ReactNode }) { return <div className={`home-metric metric-${tone}`}><span className="metric-icon">{icon}</span><span className="metric-label">{label}</span><strong>{value}</strong><small>{delta}</small><span className="metric-line" /></div>; }
-function ChartLegend({ items }: { items: string[][] }) { return <div className="chart-legend">{items.map(([label, color]) => <span key={label}><i style={{ background: color }} />{label}</span>)}</div>; }
-function RankingList({ data }: { data: { name: string; attacks: number }[] }) { const max = data[0].attacks; return <div className="ranking-list">{data.map((entry, index) => <div className="ranking-row" key={entry.name}><span className="ranking-index">0{index + 1}</span><span className="ranking-name">{entry.name}</span><span className="ranking-count">{entry.attacks}</span><span className="ranking-track"><i style={{ width: `${(entry.attacks / max) * 100}%` }} /></span></div>)}</div>; }
-function RecentEvent({ time, ip, endpoint, status, risk }: { time: string; ip: string; endpoint: string; status: string; risk: string }) { return <div className="recent-row"><span>{time}</span><span className="source-ip">{ip}</span><span className="endpoint-code">{endpoint}</span><span className={`status-${status.toLowerCase()}`}>{status}</span><b className={`risk-badge risk-${risk.toLowerCase()}`}>{risk}</b></div>; }
-
-function VisionOverview() {
-  return <div className="dashboard-content vision-overview">
-    <div className="overview-row reveal"><div><p className="eyebrow"><Gauge size={15} /> Command center</p><p className="section-intro">A clear read on your application perimeter, updated in real time.</p></div><button className="filter-button">Last 24 hours <ChevronRight size={15} /></button></div>
-    <div className="vision-stats reveal reveal-delay-1">
-      <StatCard label="Requests analyzed" value="184,290" delta="+12.8%" tone="mint" icon={<Activity size={18} />} />
-      <StatCard label="Attacks detected" value="2,846" delta="+8.4%" tone="coral" icon={<AlertTriangle size={18} />} />
-      <StatCard label="Detection rate" value="98.7%" delta="+1.2%" tone="blue" icon={<ShieldCheck size={18} />} />
-      <StatCard label="Open alerts" value="12" delta="3 critical" tone="amber" icon={<Bell size={18} />} />
-    </div>
-    <div className="vision-grid reveal reveal-delay-2">
-      <div className="panel hero-widget"><div className="panel-heading"><div><p className="panel-kicker">Traffic pulse</p><h2>Attack activity</h2></div><span className="live-indicator"><span /> Live</span></div><div className="hero-chart"><div className="hero-chart-copy"><strong>2,846</strong><span>events detected</span><b>+8.4% <small>vs last period</small></b></div><svg viewBox="0 0 700 210" preserveAspectRatio="none" aria-label="Attack activity chart"><defs><linearGradient id="visionFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#8fffd4" stopOpacity=".32" /><stop offset="1" stopColor="#8fffd4" stopOpacity="0" /></linearGradient></defs><path d="M0 175 C44 177 60 140 100 154 S155 105 202 133 S250 151 285 98 S340 121 380 88 S430 105 468 53 S515 90 550 67 S603 74 640 39 S680 57 700 18 V210 H0 Z" fill="url(#visionFill)" /><path d="M0 175 C44 177 60 140 100 154 S155 105 202 133 S250 151 285 98 S340 121 380 88 S430 105 468 53 S515 90 550 67 S603 74 640 39 S680 57 700 18" fill="none" stroke="#8fffd4" strokeWidth="3" vectorEffect="non-scaling-stroke" /></svg><div className="hero-chart-axis"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>Now</span></div></div></div>
-      <div className="panel score-widget"><div className="panel-heading"><div><p className="panel-kicker">System health</p><h2>Security posture</h2></div><button className="more-button">•••</button></div><div className="posture-score"><div className="score-ring"><span>84</span><small>/ 100</small></div><div><strong>Healthy</strong><p>Detection coverage is up<br />across all protected apps.</p></div></div><div className="score-bar"><span /></div><div className="score-foot"><span>Last scan 4 min ago</span><b>+6.2%</b></div></div>
-    </div>
-    <div className="vision-lower reveal reveal-delay-3">
-      <div className="panel feed-widget"><div className="panel-heading"><div><p className="panel-kicker">Needs review</p><h2>Recent attack events</h2></div><button className="view-all">View all <ChevronRight size={15} /></button></div><div className="feed-list"><FeedItem icon="SQL" title="SQL injection pattern" endpoint="/api/v2/accounts" risk="Critical" time="2 min ago" /><FeedItem icon="XSS" title="Cross-site scripting" endpoint="/search?q=..." risk="High" time="11 min ago" /><FeedItem icon="TRV" title="Path traversal attempt" endpoint="/assets/../../" risk="High" time="24 min ago" /><FeedItem icon="BOT" title="Suspicious automation" endpoint="/auth/login" risk="Medium" time="38 min ago" /></div></div>
-      <div className="panel endpoint-widget"><div className="panel-heading"><div><p className="panel-kicker">Exposure map</p><h2>Most targeted endpoints</h2></div><Network size={17} className="panel-accent" /></div><div className="endpoint-list"><EndpointRow path="/api/v2/accounts" count="842" width="88%" /><EndpointRow path="/auth/login" count="604" width="67%" /><EndpointRow path="/search" count="391" width="45%" /><EndpointRow path="/upload/media" count="228" width="31%" /></div><button className="outline-button">Open analytics <ChevronRight size={14} /></button></div>
-    </div>
-  </div>;
-}
-
-function FeedItem({ icon, title, endpoint, risk, time }: { icon: string; title: string; endpoint: string; risk: string; time: string }) { return <div className="feed-item"><b className={`event-icon feed-icon-${risk.toLowerCase()}`}>{icon}</b><span><strong>{title}</strong><small>{endpoint}</small></span><em className={`feed-risk-${risk.toLowerCase()}`}>{risk}</em><time>{time}</time></div>; }
-function EndpointRow({ path, count, width }: { path: string; count: string; width: string }) { return <div className="endpoint-row"><div><span>{path}</span><b>{count}</b></div><div className="endpoint-track"><i style={{ width }} /></div></div>; }
-
-function Overview() {
-  return <div className="dashboard-content"><div className="overview-row reveal"><div><p className="eyebrow"><Gauge size={15} /> Live overview</p><p className="section-intro">Your traffic is being watched. Here is what needs attention today.</p></div><button className="filter-button">Last 24 hours <ChevronRight size={15} /></button></div><div className="stats-grid reveal reveal-delay-1"><StatCard label="Requests analyzed" value="184,290" delta="+12.8%" tone="mint" icon={<Activity size={18} />} /><StatCard label="Attacks detected" value="2,846" delta="+8.4%" tone="coral" icon={<AlertTriangle size={18} />} /><StatCard label="Detection rate" value="98.7%" delta="+1.2%" tone="blue" icon={<ShieldCheck size={18} />} /><StatCard label="Open alerts" value="12" delta="3 critical" tone="amber" icon={<Bell size={18} />} /></div><div className="dashboard-grid reveal reveal-delay-2"><div className="panel activity-panel"><div className="panel-heading"><div><p className="panel-kicker">Traffic pulse</p><h2>Attack activity</h2></div><span className="live-indicator"><span /> Live</span></div><div className="chart"><div className="chart-y"><span>1k</span><span>750</span><span>500</span><span>250</span><span>0</span></div><div className="chart-area"><div className="chart-grid-lines" /><svg viewBox="0 0 700 230" preserveAspectRatio="none" aria-label="Attack activity chart"><defs><linearGradient id="chartFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="#8fffd4" stopOpacity=".3" /><stop offset="1" stopColor="#8fffd4" stopOpacity="0" /></linearGradient></defs><path d="M0 180 C35 170 55 185 82 142 S130 155 155 113 S200 150 225 120 S270 85 302 104 S345 140 372 88 S420 105 444 62 S490 92 525 54 S570 80 596 35 S650 80 700 23 V230 H0 Z" fill="url(#chartFill)" /><path d="M0 180 C35 170 55 185 82 142 S130 155 155 113 S200 150 225 120 S270 85 302 104 S345 140 372 88 S420 105 444 62 S490 92 525 54 S570 80 596 35 S650 80 700 23" fill="none" stroke="#8fffd4" strokeWidth="3" vectorEffect="non-scaling-stroke" /></svg><div className="chart-x"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>Now</span></div></div></div></div><div className="panel risk-panel"><div className="panel-heading"><div><p className="panel-kicker">Risk posture</p><h2>Threat levels</h2></div><button className="more-button">•••</button></div><div className="risk-ring"><div className="ring-inner"><strong>84</strong><span>health score</span></div></div><div className="risk-legend"><span><i className="dot dot-critical" />Critical <b>12</b></span><span><i className="dot dot-high" />High <b>68</b></span><span><i className="dot dot-medium" />Medium <b>174</b></span><span><i className="dot dot-low" />Low <b>2,592</b></span></div></div></div><div className="panel events-panel reveal reveal-delay-3"><div className="panel-heading"><div><p className="panel-kicker">Needs review</p><h2>Recent attack events</h2></div><button className="view-all">View all <ChevronRight size={15} /></button></div><div className="event-table"><div className="event-row event-head"><span>Event</span><span>Source</span><span>Risk</span><span>Time</span></div><EventRow icon="SQL" title="SQL injection pattern" endpoint="/api/v2/accounts" source="185.74.22.91" risk="Critical" time="2 min ago" /><EventRow icon="XSS" title="Cross-site scripting" endpoint="/search?q=..." source="103.45.18.204" risk="High" time="11 min ago" /><EventRow icon="TRV" title="Path traversal attempt" endpoint="/assets/../../" source="45.129.88.14" risk="High" time="24 min ago" /></div></div></div>;
-}
-
-function StatCard({ label, value, delta, tone, icon }: { label: string; value: string; delta: string; tone: string; icon: React.ReactNode }) { return <div className={`stat-card stat-${tone}`}><div className="stat-top"><span className="stat-icon">{icon}</span><span className="stat-delta">{delta}</span></div><strong>{value}</strong><span>{label}</span><div className="sparkline"><i /><i /><i /><i /><i /><i /><i /><i /></div></div>; }
-function EventRow({ icon, title, endpoint, source, risk, time }: { icon: string; title: string; endpoint: string; source: string; risk: string; time: string }) { return <div className="event-row"><span className="event-name"><b className="event-icon">{icon}</b><span><strong>{title}</strong><small>{endpoint}</small></span></span><span className="source-ip">{source}</span><span><b className={`risk-badge risk-${risk.toLowerCase()}`}>{risk}</b></span><span className="event-time">{time}</span></div>; }
-function Placeholder({ page }: { page: Page }) { return <div className="placeholder reveal"><div className="placeholder-icon"><Eye size={24} /></div><p className="eyebrow">DeepLog module</p><h2>{page} is ready for connection</h2><p>The navigation shell is in place. Connect this view to the FastAPI endpoints and model services next.</p></div>; }
-
-export default function App() { const [authenticated, setAuthenticated] = useState(false); return authenticated ? <Dashboard onLogout={() => setAuthenticated(false)} /> : <Login onLogin={() => setAuthenticated(true)} />; }

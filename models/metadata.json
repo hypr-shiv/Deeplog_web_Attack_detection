@@ -1,0 +1,6 @@
+{
+  "model_version": "1.0.0",
+  "feature_schema_version": "1.0.0",
+  "algorithm": "RandomForestClassifier",
+  "feature_count": 24
+}

@@ -9,13 +9,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.8",
+    "@react-three/fiber": "^9.7.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "latest",
+    "gsap": "^3.15.0",
     "lucide-react": "latest",
-    "react": "latest",
-    "react-dom": "latest",
+    "maplibre-gl": "^6.9.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-is": "^19.3.0",
     "recharts": "^3.10.1",
     "tailwindcss": "^4.3.3",
+    "three": "^0.186.0",
     "typescript": "latest",
     "vite": "latest"
   },

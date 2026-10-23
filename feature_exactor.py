@@ -85,20 +85,7 @@ def validate_features(features_dict):
     return True
 
 
-def extract_features(url, method="GET", content="", content_type=""):
-    if not text:
-        return 0.0
-
-    counter = Counter(text)
-    length = len(text)
-
-    return -sum(
-        (count / length) * math.log2(count / length)
-        for count in counter.values()
-    )
-
-
-def extract_features(url, method="GET", content="", content_type=""):
+def extract_features(url, method="GET", content="", content_type="", content_length=None):
     raw_url = "" if url is None else str(url)
     url = re.sub(r"\s+HTTP/\d(?:\.\d)?$", "", raw_url, flags=re.IGNORECASE)
 
@@ -127,7 +114,11 @@ def extract_features(url, method="GET", content="", content_type=""):
         "encoding_count": url.count("%"),
         "dot_count": url.count("."),
         "question_mark_count": url.count("?"),
-        "content_length": len(content),
+        "content_length": (
+            len(content)
+            if content_length is None or content_length == "" or not str(content_length).isdigit()
+            else int(content_length)
+        ),
         "content_encoded_count": content.count("%"),
         "is_form_urlencoded": int(
             "application/x-www-form-urlencoded" in content_type.lower()
