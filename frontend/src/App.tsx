@@ -11,6 +11,7 @@ import {
   Filter,
   Globe,
   MapPin,
+  Lock,
   Pause,
   Play,
   RotateCcw,
@@ -34,6 +35,8 @@ import {
   YAxis,
 } from "recharts";
 import SafeLogViewer from "./components/SafeLogViewer";
+import { LandingPage } from "./components/LandingPage";
+import { LoginPage } from "./components/LoginPage";
 
 type Severity = "CRITICAL" | "WARNING" | "NORMAL";
 
@@ -360,6 +363,12 @@ function mapBackendEvent(ev: any, fallbackId?: number): LogEntry {
 }
 
 export default function App() {
+  const [currentView, setCurrentView] = useState<"landing" | "login" | "console">("landing");
+  const [activeAnalyst, setActiveAnalyst] = useState<{ id: string; name: string; role: string }>({
+    id: "analyst.alex@corp.internal",
+    name: "Analyst Alex",
+    role: "TIER_2_ANALYST",
+  });
   const [logs, setLogs] = useState<LogEntry[]>(defaultLogs);
   const [selectedLogId, setSelectedLogId] = useState<number>(101);
   const [searchQuery, setSearchQuery] = useState("");
@@ -676,7 +685,7 @@ export default function App() {
     const newNote: AnalystNote = {
       id: `note-${Date.now()}`,
       eventId: selectedLog.id,
-      author: "Analyst Alex (Tier-2)",
+      author: `${activeAnalyst.name} (${activeAnalyst.role})`,
       text: currentNoteText.trim(),
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
     };
@@ -779,6 +788,33 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  // Render Public Landing Page
+  if (currentView === "landing") {
+    return (
+      <LandingPage
+        onOpenConsole={() => setCurrentView("console")}
+        onOpenLogin={() => setCurrentView("login")}
+        wsConnected={wsConnected}
+        totalEvents={totalEvents}
+        threatsCount={criticalThreats + warnings}
+      />
+    );
+  }
+
+  // Render Hardened Analyst Login Page
+  if (currentView === "login") {
+    return (
+      <LoginPage
+        onLoginSuccess={(analyst) => {
+          setActiveAnalyst(analyst);
+          setCurrentView("console");
+        }}
+        onBackToLanding={() => setCurrentView("landing")}
+        onDirectConsole={() => setCurrentView("console")}
+      />
+    );
+  }
+
   return (
     <div className="soc-shell">
       {/* Enterprise SOC Workstation Top Bar */}
@@ -813,6 +849,16 @@ export default function App() {
 
         {/* Workstation Actions */}
         <div className="soc-header-actions">
+          {/* Return to Landing Overview */}
+          <button
+            className="btn-secondary"
+            onClick={() => setCurrentView("landing")}
+            title="Return to Public Overview & Landing Page"
+          >
+            <Globe size={13} />
+            <span>Landing</span>
+          </button>
+
           {/* Quick Real ML Ingestion Triggers */}
           <div className="probe-actions">
             <button
@@ -874,6 +920,52 @@ export default function App() {
             <Download size={14} />
             <span>Export Report</span>
           </button>
+
+          {/* Active Analyst Identification & Lock */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "3px 8px",
+              background: "rgba(255, 255, 255, 0.03)",
+              border: "1px solid var(--border-color)",
+              borderRadius: 4,
+            }}
+          >
+            <div
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                background: "rgba(96, 165, 250, 0.18)",
+                color: "var(--color-blue)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "11px",
+                fontWeight: 700,
+              }}
+            >
+              {activeAnalyst.name.charAt(0)}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.1 }}>
+              <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>
+                {activeAnalyst.name}
+              </span>
+              <span style={{ fontSize: "9px", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
+                {activeAnalyst.role}
+              </span>
+            </div>
+            <button
+              className="btn-secondary"
+              style={{ padding: "3px 6px", fontSize: "10px", marginLeft: 4 }}
+              onClick={() => setCurrentView("login")}
+              title="Lock Console / Switch Analyst"
+            >
+              <Lock size={11} />
+            </button>
+          </div>
         </div>
       </header>
 
