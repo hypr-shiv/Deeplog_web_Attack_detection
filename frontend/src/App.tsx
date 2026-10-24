@@ -11,15 +11,19 @@ import {
   Filter,
   Globe,
   MapPin,
+  Inbox,
   Lock,
   LogOut,
+  MousePointerClick,
   Pause,
   Play,
   RotateCcw,
   Search,
+  SearchX,
   Server,
   Shield,
   ShieldAlert,
+  ShieldCheck,
   Terminal,
   Upload,
   User,
@@ -1209,8 +1213,38 @@ export default function App() {
               })}
 
               {filteredLogs.length === 0 && (
-                <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "12px" }}>
-                  No log entries match the active search or severity filter.
+                <div className="soc-empty-state-box">
+                  <div className="soc-empty-icon-wrap warning">
+                    <SearchX size={26} />
+                  </div>
+                  <span className="soc-empty-title">NO MATCHING TELEMETRY LOGS</span>
+                  <p className="soc-empty-desc">
+                    {searchQuery || severityFilter !== "ALL"
+                      ? `No ingested events match query "${searchQuery}" with severity filter "${severityFilter}".`
+                      : "The ingestion stream buffer is currently empty. Ingest a server log or trigger real-time ML probes."}
+                  </p>
+                  <div className="soc-empty-actions">
+                    {(searchQuery || severityFilter !== "ALL") && (
+                      <button
+                        className="btn-secondary"
+                        onClick={() => {
+                          setSearchQuery("");
+                          setSeverityFilter("ALL");
+                        }}
+                      >
+                        <RotateCcw size={12} />
+                        <span>Reset Filters</span>
+                      </button>
+                    )}
+                    <button className="btn-secondary" onClick={() => injectLiveProbe("sqli")}>
+                      <Zap size={12} style={{ color: "var(--color-critical)" }} />
+                      <span>Inject SQLi Probe</span>
+                    </button>
+                    <button className="btn-primary" onClick={() => setShowUploadModal(true)}>
+                      <Upload size={12} />
+                      <span>Ingest Log</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1333,7 +1367,7 @@ export default function App() {
             </div>
 
             {/* Bottom: Detailed View of the Selected Log Entry */}
-            {selectedLog && (
+            {selectedLog ? (
               <div className="triage-panel-soc">
                 <div className="triage-header">
                   <div className="triage-title-group">
@@ -1475,7 +1509,7 @@ export default function App() {
                     </div>
 
                     {/* Saved Notes History for this incident */}
-                    {notes.filter((n) => n.eventId === selectedLog.id).length > 0 && (
+                    {notes.filter((n) => n.eventId === selectedLog.id).length > 0 ? (
                       <div className="saved-notes-list">
                         {notes
                           .filter((n) => n.eventId === selectedLog.id)
@@ -1488,6 +1522,11 @@ export default function App() {
                               <div style={{ color: "#E2E8F0" }}>{n.text}</div>
                             </div>
                           ))}
+                      </div>
+                    ) : (
+                      <div className="soc-empty-notes">
+                        <FileText size={13} style={{ color: "var(--color-blue)" }} />
+                        <span>No notes logged for Incident #{selectedLog.id} yet. Use the field above to record investigation findings.</span>
                       </div>
                     )}
                   </div>
@@ -1507,6 +1546,22 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+              </div>
+            ) : (
+              <div className="soc-empty-detail-panel">
+                <div className="soc-empty-icon-wrap">
+                  <MousePointerClick size={28} />
+                </div>
+                <span className="soc-empty-title">NO INCIDENT SELECTED FOR DEEP TRIAGE</span>
+                <p className="soc-empty-desc">
+                  Select any security event from the Live Log Stream on the left to inspect 24-dimensional heuristic ML feature assessments, payload decoding, and quarantine actions.
+                </p>
+                {logs[0] && (
+                  <button className="btn-secondary" onClick={() => setSelectedLogId(logs[0].id)}>
+                    <Terminal size={12} style={{ color: "var(--color-blue)" }} />
+                    <span>Inspect Latest Ingress (#{logs[0].id})</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1618,8 +1673,14 @@ export default function App() {
               ))}
 
               {topAttackers.length === 0 && (
-                <div style={{ padding: "1.5rem", textAlign: "center", color: "var(--text-muted)", fontSize: "11px" }}>
-                  No attack origin data recorded in current session.
+                <div className="soc-empty-state-box" style={{ margin: "14px 12px" }}>
+                  <div className="soc-empty-icon-wrap purple">
+                    <ShieldCheck size={22} />
+                  </div>
+                  <span className="soc-empty-title">PERIMETER SECURE</span>
+                  <p className="soc-empty-desc">
+                    No confirmed attacker IP coordinates logged in the current inspection window.
+                  </p>
                 </div>
               )}
             </div>
