@@ -16,11 +16,16 @@ import {
   Database,
   Radio,
   FileCode,
+  LogOut,
+  User,
 } from "lucide-react";
 
 interface LandingPageProps {
   onOpenConsole: () => void;
   onOpenLogin: () => void;
+  onLogout?: () => void;
+  isAuthenticated?: boolean;
+  activeAnalyst?: { id: string; name: string; role: string } | null;
   wsConnected: boolean;
   totalEvents: number;
   threatsCount: number;
@@ -29,6 +34,9 @@ interface LandingPageProps {
 export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenConsole,
   onOpenLogin,
+  onLogout,
+  isAuthenticated,
+  activeAnalyst,
   wsConnected,
   totalEvents,
   threatsCount,
@@ -58,10 +66,59 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span>{wsConnected ? "48 SENSORS ONLINE" : "CONNECTING..."}</span>
           </div>
 
-          <button className="btn-secondary" onClick={onOpenLogin}>
-            <Lock size={13} />
-            <span>Analyst Portal</span>
-          </button>
+          {isAuthenticated && activeAnalyst ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "4px 8px",
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: 4,
+                  fontSize: "11px",
+                }}
+              >
+                <div
+                  style={{
+                    width: 18,
+                    height: 18,
+                    borderRadius: "50%",
+                    background: "rgba(96,165,250,0.2)",
+                    color: "var(--color-blue)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontWeight: 700,
+                    fontSize: "10px",
+                  }}
+                >
+                  {activeAnalyst.name.charAt(0)}
+                </div>
+                <span style={{ fontWeight: 600 }}>{activeAnalyst.name}</span>
+                <span style={{ color: "var(--text-muted)", fontSize: "9px", fontFamily: "var(--font-mono)" }}>
+                  ({activeAnalyst.role})
+                </span>
+              </div>
+              {onLogout && (
+                <button
+                  className="btn-secondary"
+                  onClick={onLogout}
+                  title="Sign out of analyst session"
+                  style={{ color: "var(--color-critical)", display: "flex", alignItems: "center", gap: 4 }}
+                >
+                  <LogOut size={12} />
+                  <span>Logout</span>
+                </button>
+              )}
+            </div>
+          ) : (
+            <button className="btn-secondary" onClick={onOpenLogin}>
+              <Lock size={13} />
+              <span>Analyst Sign-In</span>
+            </button>
+          )}
 
           <button className="btn-primary" onClick={onOpenConsole}>
             <span>Launch SOC Console</span>

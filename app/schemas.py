@@ -16,6 +16,20 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1)
 
 
+class AnalystAuthRequest(BaseModel):
+    analyst_id: str = Field(min_length=1)
+    passcode: str = Field(min_length=1)
+    mfa_code: str | None = None
+    role: str | None = None
+
+
+class AuthUserResponse(BaseModel):
+    authenticated: bool
+    user: dict[str, Any] | None = None
+    token: str | None = None
+    message: str | None = None
+
+
 class PredictionResponse(BaseModel):
     prediction: str
     attack_probability: float = Field(ge=0, le=1)

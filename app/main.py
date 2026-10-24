@@ -12,9 +12,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.rate_limiter import verify_ingest_rate_limit
-from app.core.auth_rbac import Role, create_session_cookie, require_role
+from app.core.auth_rbac import (
+    Role,
+    authenticate_user,
+    clear_session_cookie,
+    create_session_cookie,
+    get_current_user_from_request,
+    require_role,
+)
 from app.models.event_schema import encrypt_sensitive_payload, decrypt_sensitive_payload
-from app.schemas import EventListResponse, LoginRequest, PageMeta, TokenResponse
+from app.schemas import (
+    AnalystAuthRequest,
+    AuthUserResponse,
+    EventListResponse,
+    LoginRequest,
+    PageMeta,
+    TokenResponse,
+)
 from app.services.geo_service import geo_service
 from app.services.ingestion import parse_csv_rows, parse_text_rows
 from app.services.ml_service import ml_service
@@ -25,7 +39,12 @@ app = FastAPI(title=settings.app_name, version=settings.model_version)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173", "*"],
+    allow_origins=[
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -241,11 +260,64 @@ async def websocket_stream(websocket: WebSocket) -> None:
         manager.disconnect(websocket)
 
 
-@app.post(f"{settings.api_prefix}/auth/session")
-def authenticate_analyst(response: Response, user_id: str = "soc-analyst-1") -> dict[str, Any]:
-    """Issues RFC 6265bis HttpOnly, Secure, SameSite=Lax cookie for Analyst session."""
-    create_session_cookie(response, user_id=user_id, role=Role.ANALYST, mfa_verified=True)
-    return {"status": "authenticated", "role": "ANALYST", "mfa": True}
+@app.post(f"{settings.api_prefix}/auth/login", response_model=AuthUserResponse)
+@app.post(f"{settings.api_prefix}/auth/session", response_model=AuthUserResponse)
+def authenticate_analyst(payload: AnalystAuthRequest, response: Response) -> AuthUserResponse:
+    """
+    Authenticates analyst credentials against PBKDF2 hashed store and TOTP MFA.
+    Sets RFC 6265bis HttpOnly, Secure, SameSite=Lax cookie and returns authenticated profile.
+    """
+    user = authenticate_user(
+        identifier=payload.analyst_id,
+        passcode=payload.passcode,
+        mfa_code=payload.mfa_code,
+    )
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed: Invalid credentials or incorrect passcode.",
+        )
+    if not user.get("mfa_verified", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="MFA verification failed: Invalid 6-digit TOTP token.",
+        )
+
+    token_jwt = create_session_cookie(response, user=user)
+    return AuthUserResponse(
+        authenticated=True,
+        user={
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"].value if hasattr(user["role"], "value") else str(user["role"]),
+            "mfa_verified": user.get("mfa_verified", True),
+        },
+        token=token_jwt,
+        message="Session successfully established with HttpOnly cookie.",
+    )
+
+
+@app.get(f"{settings.api_prefix}/auth/me", response_model=AuthUserResponse)
+@app.get(f"{settings.api_prefix}/auth/session", response_model=AuthUserResponse)
+def get_current_session(request: Request) -> AuthUserResponse:
+    """Validates the current analyst session from HttpOnly cookie or Authorization header."""
+    user = get_current_user_from_request(request)
+    if not user:
+        return AuthUserResponse(authenticated=False, user=None, message="No active session found.")
+    return AuthUserResponse(authenticated=True, user=user, message="Session active.")
+
+
+@app.post(f"{settings.api_prefix}/auth/logout")
+def logout_analyst(response: Response) -> dict[str, Any]:
+    """Revokes the current session by clearing the HttpOnly cookie."""
+    clear_session_cookie(response)
+    return {
+        "authenticated": False,
+        "status": "logged_out",
+        "message": "Analyst session successfully revoked and security token cleared.",
+    }
+
 
 
 @app.post(f"{settings.api_prefix}/ingest/event", dependencies=[Depends(verify_ingest_rate_limit)])
@@ -315,9 +387,6 @@ def stream_status() -> dict[str, Any]:
     return {"running": streamer.is_running, "interval": streamer.interval, "clients": len(manager.active_connections)}
 
 
-@app.post(f"{settings.api_prefix}/auth/login", response_model=TokenResponse)
-def login(credentials: LoginRequest) -> TokenResponse:
-    return TokenResponse(access_token=token(credentials))
 
 
 @app.post(f"{settings.api_prefix}/logs/upload")

@@ -12,6 +12,7 @@ import {
   Globe,
   MapPin,
   Lock,
+  LogOut,
   Pause,
   Play,
   RotateCcw,
@@ -364,11 +365,58 @@ function mapBackendEvent(ev: any, fallbackId?: number): LogEntry {
 
 export default function App() {
   const [currentView, setCurrentView] = useState<"landing" | "login" | "console">("landing");
-  const [activeAnalyst, setActiveAnalyst] = useState<{ id: string; name: string; role: string }>({
-    id: "analyst.alex@corp.internal",
-    name: "Analyst Alex",
-    role: "TIER_2_ANALYST",
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [isLoggingOut, setIsLoggingOut] = useState<boolean>(false);
+  const [activeAnalyst, setActiveAnalyst] = useState<{ id: string; email?: string; name: string; role: string }>({
+    id: "ALEX-TIER2",
+    email: "analyst.alex@corp.internal",
+    name: "Analyst Alex (Tier-2)",
+    role: "ANALYST",
   });
+
+  // Verify active session on initial page load
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/api/v1/auth/me", {
+      credentials: "include",
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.authenticated && data.user) {
+          setIsAuthenticated(true);
+          setActiveAnalyst({
+            id: data.user.id || data.user.email,
+            email: data.user.email,
+            name: data.user.name || "SOC Analyst",
+            role: data.user.role || "ANALYST",
+          });
+        }
+      })
+      .catch(() => {
+        // Backend not ready or unauthenticated
+      })
+      .finally(() => {
+        setTimeout(() => setIsAuthChecking(false), 350);
+      });
+  }, []);
+
+  // Real backend logout handler
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    try {
+      await fetch("http://127.0.0.1:8000/api/v1/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (e) {
+      console.warn("Logout request failed:", e);
+    }
+    setTimeout(() => {
+      setIsAuthenticated(false);
+      setIsLoggingOut(false);
+      setCurrentView("login");
+    }, 600);
+  }
   const [logs, setLogs] = useState<LogEntry[]>(defaultLogs);
   const [selectedLogId, setSelectedLogId] = useState<number>(101);
   const [searchQuery, setSearchQuery] = useState("");
@@ -788,12 +836,77 @@ export default function App() {
     URL.revokeObjectURL(url);
   }
 
+  // Preloader: Verifying cryptographic session on initial page load
+  if (isAuthChecking) {
+    return (
+      <div className="soc-preloader-shell">
+        <div className="soc-preloader-card">
+          <div className="soc-preloader-radar">
+            <Shield size={32} style={{ color: "var(--color-blue)" }} className="animate-pulse" />
+          </div>
+          <div className="soc-brand" style={{ marginBottom: 6 }}>
+            <span className="soc-brand-title" style={{ fontSize: "16px" }}>DeepLog SIEM</span>
+            <span className="soc-brand-badge">SOC CONSOLE v2.4</span>
+          </div>
+          <div className="soc-preloader-bar-bg">
+            <div className="soc-preloader-bar-fill" />
+          </div>
+          <div className="soc-preloader-step">
+            <Activity size={13} className="animate-spin" style={{ color: "var(--color-blue)" }} />
+            <span>VERIFYING CRYPTOGRAPHIC SESSION & HARDWARE KEYS...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Preloader: Revoking session tokens on analyst logout
+  if (isLoggingOut) {
+    return (
+      <div className="soc-preloader-shell">
+        <div className="soc-preloader-card">
+          <div
+            className="soc-preloader-radar"
+            style={{
+              borderColor: "rgba(239, 68, 68, 0.4)",
+              background: "radial-gradient(circle, rgba(239, 68, 68, 0.15) 0%, rgba(18, 23, 32, 0) 70%)",
+            }}
+          >
+            <LogOut size={28} style={{ color: "var(--color-critical)" }} className="animate-pulse" />
+          </div>
+          <div className="soc-brand" style={{ marginBottom: 6 }}>
+            <span className="soc-brand-title" style={{ fontSize: "16px" }}>DeepLog SIEM</span>
+            <span
+              className="soc-brand-badge"
+              style={{ borderColor: "rgba(239, 68, 68, 0.4)", color: "var(--color-critical)" }}
+            >
+              SESSION TERMINATION
+            </span>
+          </div>
+          <div className="soc-preloader-bar-bg">
+            <div
+              className="soc-preloader-bar-fill"
+              style={{ background: "linear-gradient(90deg, var(--color-red), var(--color-amber))" }}
+            />
+          </div>
+          <div className="soc-preloader-step" style={{ color: "var(--color-critical)" }}>
+            <Activity size={13} className="animate-spin" />
+            <span>REVOKING HttpOnly SECURITY TOKEN & TERMINATING SESSION...</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Render Public Landing Page
   if (currentView === "landing") {
     return (
       <LandingPage
         onOpenConsole={() => setCurrentView("console")}
         onOpenLogin={() => setCurrentView("login")}
+        onLogout={handleLogout}
+        isAuthenticated={isAuthenticated}
+        activeAnalyst={isAuthenticated ? activeAnalyst : null}
         wsConnected={wsConnected}
         totalEvents={totalEvents}
         threatsCount={criticalThreats + warnings}
@@ -806,6 +919,7 @@ export default function App() {
     return (
       <LoginPage
         onLoginSuccess={(analyst) => {
+          setIsAuthenticated(true);
           setActiveAnalyst(analyst);
           setCurrentView("console");
         }}
@@ -958,12 +1072,22 @@ export default function App() {
               </span>
             </div>
             <button
-              className="btn-secondary"
-              style={{ padding: "3px 6px", fontSize: "10px", marginLeft: 4 }}
-              onClick={() => setCurrentView("login")}
-              title="Lock Console / Switch Analyst"
+              className="btn-secondary logout-btn"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 8px",
+                fontSize: "11px",
+                marginLeft: 4,
+                color: "var(--color-critical)",
+                borderColor: "rgba(239, 68, 68, 0.3)",
+              }}
+              onClick={handleLogout}
+              title="Terminate Session & Sign Out"
             >
-              <Lock size={11} />
+              <LogOut size={11} />
+              <span>Sign Out</span>
             </button>
           </div>
         </div>
