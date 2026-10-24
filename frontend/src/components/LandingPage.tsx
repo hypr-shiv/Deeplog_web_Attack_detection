@@ -17,6 +17,7 @@ import {
   Radio,
   FileCode,
   LogOut,
+  Trash2,
   User,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ interface LandingPageProps {
   onOpenConsole: () => void;
   onOpenLogin: () => void;
   onLogout?: () => void;
+  onDeleteAccount?: () => void;
   isAuthenticated?: boolean;
   activeAnalyst?: { id: string; name: string; role: string } | null;
   wsConnected: boolean;
@@ -35,6 +37,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenConsole,
   onOpenLogin,
   onLogout,
+  onDeleteAccount,
   isAuthenticated,
   activeAnalyst,
   wsConnected,
@@ -110,6 +113,24 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                 >
                   <LogOut size={12} />
                   <span>Logout</span>
+                </button>
+              )}
+              {onDeleteAccount && (
+                <button
+                  className="btn-secondary"
+                  onClick={onDeleteAccount}
+                  title="Permanently Delete Analyst Account"
+                  style={{
+                    color: "var(--color-critical)",
+                    background: "rgba(239, 68, 68, 0.08)",
+                    borderColor: "rgba(239, 68, 68, 0.35)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                >
+                  <Trash2 size={12} />
+                  <span>Delete Account</span>
                 </button>
               )}
             </div>

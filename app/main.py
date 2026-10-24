@@ -34,6 +34,7 @@ from app.core.auth_rbac import (
     authenticate_user,
     clear_session_cookie,
     create_session_cookie,
+    delete_user_account,
     get_current_user_from_request,
     require_role,
 )
@@ -341,6 +342,31 @@ def logout_analyst(response: Response) -> dict[str, Any]:
         "authenticated": False,
         "status": "logged_out",
         "message": "Analyst session successfully revoked and security token cleared.",
+    }
+
+
+@app.delete(f"{settings.api_prefix}/auth/account")
+@app.delete(f"{settings.api_prefix}/auth/me")
+@app.post(f"{settings.api_prefix}/auth/delete-account")
+def delete_analyst_account(request: Request, response: Response) -> dict[str, Any]:
+    """
+    Permanently deletes the currently authenticated analyst account,
+    revokes the session cookie, and clears access tokens.
+    """
+    user = get_current_user_from_request(request)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required to delete analyst account.",
+        )
+    email = user.get("email") or user.get("id") or "unknown"
+    delete_user_account(email)
+    clear_session_cookie(response)
+    return {
+        "status": "account_deleted",
+        "authenticated": False,
+        "email": email,
+        "message": f"Analyst account '{email}' and all session cryptographic keys have been permanently purged.",
     }
 
 

@@ -152,6 +152,54 @@ def authenticate_user(
     }
 
 
+def delete_user_account(identifier: str) -> bool:
+    """Permanently deletes/deprovisions an analyst account from the directory."""
+    clean_id = identifier.strip().lower()
+    if clean_id in ANALYSTS_DIRECTORY:
+        del ANALYSTS_DIRECTORY[clean_id]
+        return True
+
+    for key, user in list(ANALYSTS_DIRECTORY.items()):
+        if user["id"].lower() == clean_id or user["email"].lower() == clean_id:
+            del ANALYSTS_DIRECTORY[key]
+            return True
+    return False
+
+
+def reset_demo_accounts() -> None:
+    """Restores default analyst accounts if needed."""
+    global ANALYSTS_DIRECTORY
+    ANALYSTS_DIRECTORY.update({
+        "analyst.alex@corp.internal": {
+            "id": "ALEX-TIER2",
+            "email": "analyst.alex@corp.internal",
+            "name": "Analyst Alex (Tier-2)",
+            "role": Role.ANALYST,
+            "password_hash": hash_password("SecureAlex#2026!SOC", bytes.fromhex("11223344556677889900aabbccddeeff")),
+            "mfa_secret": "JBSWY3DPEHPK3PXP",
+            "accepted_mfa_codes": {"784912"},
+        },
+        "secops.admin@corp.internal": {
+            "id": "SARAH-ADMIN",
+            "email": "secops.admin@corp.internal",
+            "name": "Lead Admin Sarah",
+            "role": Role.ADMIN,
+            "password_hash": hash_password("AdminMaster#99201!DeepLog", bytes.fromhex("ffeeddccbbaa00998877665544332211")),
+            "mfa_secret": "JBSWY3DPEHPK3PXQ",
+            "accepted_mfa_codes": {"910482"},
+        },
+        "demo.analyst@corp.internal": {
+            "id": "DEMO-GUEST",
+            "email": "demo.analyst@corp.internal",
+            "name": "Guest Analyst (Demo)",
+            "role": Role.VIEWER,
+            "password_hash": hash_password("Demo#2026!SIEM", bytes.fromhex("1234567890abcdef1234567890abcdef")),
+            "mfa_secret": "JBSWY3DPEHPK3PXR",
+            "accepted_mfa_codes": {"123456"},
+        },
+    })
+
+
 def create_session_cookie(
     response: Response,
     user: dict[str, Any],

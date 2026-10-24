@@ -25,6 +25,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Terminal,
+  Trash2,
   Upload,
   User,
   X,
@@ -420,6 +421,40 @@ export default function App() {
       setIsLoggingOut(false);
       setCurrentView("login");
     }, 600);
+  }
+
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState("");
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
+  // Permanently delete analyst account handler
+  async function handleDeleteAccount() {
+    setIsDeletingAccount(true);
+    setDeleteAccountError("");
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/v1/auth/account", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Account deletion failed.");
+      }
+      setShowDeleteAccountModal(false);
+      setIsAuthenticated(false);
+      setActiveAnalyst({
+        id: "GUEST",
+        email: "demo.analyst@corp.internal",
+        name: "Guest Analyst (Demo)",
+        role: "VIEWER",
+      });
+      setCurrentView("login");
+    } catch (err: any) {
+      setDeleteAccountError(err.message || "Failed to delete analyst account.");
+    } finally {
+      setIsDeletingAccount(false);
+    }
   }
   const [logs, setLogs] = useState<LogEntry[]>(defaultLogs);
   const [selectedLogId, setSelectedLogId] = useState<number>(101);
@@ -917,6 +952,11 @@ export default function App() {
         onOpenConsole={() => setCurrentView("console")}
         onOpenLogin={() => setCurrentView("login")}
         onLogout={handleLogout}
+        onDeleteAccount={() => {
+          setDeleteAccountError("");
+          setDeleteConfirmText("");
+          setShowDeleteAccountModal(true);
+        }}
         isAuthenticated={isAuthenticated}
         activeAnalyst={isAuthenticated ? activeAnalyst : null}
         wsConnected={wsConnected}
@@ -1126,6 +1166,29 @@ export default function App() {
             >
               <LogOut size={11} />
               <span>Sign Out</span>
+            </button>
+            <button
+              className="btn-secondary delete-account-btn"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 4,
+                padding: "3px 8px",
+                fontSize: "11px",
+                marginLeft: 4,
+                color: "var(--color-critical)",
+                background: "rgba(239, 68, 68, 0.08)",
+                borderColor: "rgba(239, 68, 68, 0.35)",
+              }}
+              onClick={() => {
+                setDeleteAccountError("");
+                setDeleteConfirmText("");
+                setShowDeleteAccountModal(true);
+              }}
+              title="Permanently Delete Analyst Account"
+            >
+              <Trash2 size={11} />
+              <span>Delete Account</span>
             </button>
           </div>
         </div>
@@ -1843,6 +1906,174 @@ export default function App() {
                   }}
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Account Danger Confirmation Modal */}
+      {showDeleteAccountModal && (
+        <div
+          className="modal-overlay-soc"
+          onClick={() => {
+            if (!isDeletingAccount) {
+              setDeleteAccountError("");
+              setShowDeleteAccountModal(false);
+            }
+          }}
+        >
+          <div
+            className="modal-box-soc"
+            style={{ maxWidth: 500, borderColor: "rgba(239, 68, 68, 0.4)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header-soc" style={{ borderColor: "rgba(239, 68, 68, 0.3)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--color-critical)" }}>
+                <Trash2 size={16} />
+                <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 700 }}>
+                  Permanently Delete Analyst Account
+                </h3>
+              </div>
+              <button
+                className="btn-icon"
+                disabled={isDeletingAccount}
+                onClick={() => {
+                  setDeleteAccountError("");
+                  setShowDeleteAccountModal(false);
+                }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="modal-body-soc" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div
+                style={{
+                  padding: "12px 14px",
+                  background: "rgba(239, 68, 68, 0.09)",
+                  border: "1px solid rgba(239, 68, 68, 0.35)",
+                  borderRadius: 6,
+                  color: "var(--color-red)",
+                  fontSize: "12px",
+                  lineHeight: 1.5,
+                  display: "flex",
+                  gap: 10,
+                }}
+              >
+                <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2, color: "var(--color-critical)" }} />
+                <div>
+                  <strong style={{ fontSize: "13px" }}>Irreversible Security Action:</strong>
+                  <p style={{ margin: "4px 0 0", color: "var(--text-secondary)" }}>
+                    You are permanently deprovisioning analyst account{" "}
+                    <code
+                      style={{
+                        background: "rgba(0, 0, 0, 0.4)",
+                        color: "var(--color-critical)",
+                        padding: "1px 5px",
+                        borderRadius: 3,
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      {activeAnalyst.email || activeAnalyst.id}
+                    </code>
+                    . All active cryptographic sessions, TOTP MFA hardware associations, and SOC access privileges will be revoked immediately.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: "12px", fontWeight: 500, color: "var(--text-secondary)" }}>
+                  Type <strong style={{ color: "var(--color-critical)", fontFamily: "var(--font-mono)" }}>DELETE</strong> to confirm deprovisioning:
+                </label>
+                <input
+                  type="text"
+                  className="form-input font-mono"
+                  placeholder="DELETE"
+                  value={deleteConfirmText}
+                  onChange={(e) => {
+                    setDeleteConfirmText(e.target.value);
+                    if (deleteAccountError) setDeleteAccountError("");
+                  }}
+                  disabled={isDeletingAccount}
+                  autoFocus
+                />
+              </div>
+
+              {deleteAccountError && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    padding: "8px 12px",
+                    background: "rgba(239, 68, 68, 0.12)",
+                    border: "1px solid rgba(239, 68, 68, 0.35)",
+                    borderRadius: 6,
+                    color: "var(--color-red)",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                    <span>{deleteAccountError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteAccountError("")}
+                    style={{
+                      background: "rgba(239, 68, 68, 0.18)",
+                      border: "1px solid rgba(239, 68, 68, 0.35)",
+                      color: "var(--color-red)",
+                      borderRadius: 4,
+                      padding: "2px 8px",
+                      fontSize: "11px",
+                      cursor: "pointer",
+                    }}
+                    title="Clear error"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={isDeletingAccount}
+                  onClick={() => {
+                    setDeleteAccountError("");
+                    setShowDeleteAccountModal(false);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{
+                    background: "var(--color-critical)",
+                    borderColor: "rgba(239, 68, 68, 0.5)",
+                    opacity: deleteConfirmText.trim() === "DELETE" && !isDeletingAccount ? 1 : 0.45,
+                    cursor: deleteConfirmText.trim() === "DELETE" && !isDeletingAccount ? "pointer" : "not-allowed",
+                  }}
+                  disabled={deleteConfirmText.trim() !== "DELETE" || isDeletingAccount}
+                  onClick={handleDeleteAccount}
+                >
+                  {isDeletingAccount ? (
+                    <>
+                      <Activity size={13} className="animate-spin" />
+                      <span>Deprovisioning Account...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 size={13} />
+                      <span>Permanently Delete Account</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
