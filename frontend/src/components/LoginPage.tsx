@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Shield,
   Lock,
@@ -14,6 +14,7 @@ import {
   Fingerprint,
   Info,
   Activity,
+  X,
 } from "lucide-react";
 
 interface LoginPageProps {
@@ -37,6 +38,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [authStatus, setAuthStatus] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Auto-clear error on Escape key
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && errorMessage) {
+        setErrorMessage(null);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [errorMessage]);
+
   // Handle Real Authentication Submission
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -45,11 +57,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setIsSubmitting(true);
     setLoadingStep("Step 1/3: Computing PBKDF2 HMAC-SHA256 hash (100,000 rounds)...");
 
-    const timer1 = setTimeout(() => {
+    let timer1: ReturnType<typeof setTimeout> | undefined;
+    let timer2: ReturnType<typeof setTimeout> | undefined;
+
+    timer1 = setTimeout(() => {
       setLoadingStep("Step 2/3: Validating FIPS 140-2 TOTP authenticator token...");
     }, 250);
 
-    const timer2 = setTimeout(() => {
+    timer2 = setTimeout(() => {
       setLoadingStep("Step 3/3: Establishing __Host-HttpOnly session cookie...");
     }, 500);
 
@@ -189,7 +204,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 type="text"
                 className="form-input"
                 value={analystId}
-                onChange={(e) => setAnalystId(e.target.value)}
+                onChange={(e) => {
+                  setAnalystId(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
                 placeholder="e.g. analyst.alex@corp.internal"
                 required
               />
@@ -225,7 +243,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 type={showPassword ? "text" : "password"}
                 className="form-input font-mono"
                 value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
+                onChange={(e) => {
+                  setPasscode(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
                 placeholder="Enter password..."
                 required
               />
@@ -246,7 +267,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 maxLength={6}
                 className="form-input font-mono tracking-widest text-center"
                 value={mfaCode}
-                onChange={(e) => setMfaCode(e.target.value)}
+                onChange={(e) => {
+                  setMfaCode(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
                 placeholder="000000"
               />
             </div>
@@ -285,9 +309,40 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             )}
 
             {errorMessage && (
-              <div className="auth-status-box error">
-                <AlertTriangle size={13} />
-                <span>{errorMessage}</span>
+              <div
+                className="auth-status-box error"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                  <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+                  <span>{errorMessage}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setErrorMessage(null)}
+                  style={{
+                    background: "rgba(239, 68, 68, 0.15)",
+                    border: "1px solid rgba(239, 68, 68, 0.3)",
+                    color: "var(--color-red)",
+                    borderRadius: 4,
+                    padding: "2px 6px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 3,
+                    fontSize: "11px",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                  title="Clear error message"
+                >
+                  <X size={11} />
+                  <span>Clear</span>
+                </button>
               </div>
             )}
 

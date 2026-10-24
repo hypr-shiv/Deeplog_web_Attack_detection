@@ -1009,7 +1009,26 @@ export default function App() {
           </div>
 
           {probeNotice && (
-            <div className="probe-badge">{probeNotice}</div>
+            <div className="probe-badge" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <span>{probeNotice}</span>
+              <button
+                type="button"
+                onClick={() => setProbeNotice(null)}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "inherit",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  padding: "0 2px",
+                  opacity: 0.8,
+                }}
+                title="Clear notification"
+              >
+                <X size={11} />
+              </button>
+            </div>
           )}
 
           <button
@@ -1023,7 +1042,10 @@ export default function App() {
 
           <button
             className="btn-primary"
-            onClick={() => setShowUploadModal(true)}
+            onClick={() => {
+              setUploadError("");
+              setShowUploadModal(true);
+            }}
             title="Ingest server log file (.csv, .log, .txt)"
           >
             <Upload size={14} />
@@ -1690,14 +1712,26 @@ export default function App() {
 
       {/* Log Ingest Modal */}
       {showUploadModal && (
-        <div className="modal-overlay-soc" onClick={() => setShowUploadModal(false)}>
+        <div
+          className="modal-overlay-soc"
+          onClick={() => {
+            setUploadError("");
+            setShowUploadModal(false);
+          }}
+        >
           <div className="modal-box-soc" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header-soc">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Upload size={16} style={{ color: "var(--color-blue)" }} />
                 <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 600 }}>Ingest Server Log File</h3>
               </div>
-              <button className="btn-icon" onClick={() => setShowUploadModal(false)}>
+              <button
+                className="btn-icon"
+                onClick={() => {
+                  setUploadError("");
+                  setShowUploadModal(false);
+                }}
+              >
                 <X size={15} />
               </button>
             </div>
@@ -1710,10 +1744,14 @@ export default function App() {
 
               <div
                 className="dropzone-soc"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  if (uploadError) setUploadError("");
+                  fileInputRef.current?.click();
+                }}
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => {
                   e.preventDefault();
+                  if (uploadError) setUploadError("");
                   if (e.dataTransfer.files[0]) handleFileUpload(e.dataTransfer.files[0]);
                 }}
               >
@@ -1723,6 +1761,7 @@ export default function App() {
                   style={{ display: "none" }}
                   accept=".csv,.log,.txt,text/plain,text/csv"
                   onChange={(e) => {
+                    if (uploadError) setUploadError("");
                     if (e.target.files?.[0]) handleFileUpload(e.target.files[0]);
                   }}
                 />
@@ -1741,14 +1780,56 @@ export default function App() {
               )}
 
               {uploadError && (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, color: "var(--color-red)", fontSize: "12px" }}>
-                  <AlertTriangle size={14} />
-                  <span>{uploadError}</span>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    padding: "8px 12px",
+                    background: "rgba(239, 68, 68, 0.1)",
+                    border: "1px solid rgba(239, 68, 68, 0.35)",
+                    borderRadius: 6,
+                    color: "var(--color-red)",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                    <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                    <span>{uploadError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUploadError("")}
+                    style={{
+                      background: "rgba(239, 68, 68, 0.18)",
+                      border: "1px solid rgba(239, 68, 68, 0.35)",
+                      color: "var(--color-red)",
+                      borderRadius: 4,
+                      padding: "2px 8px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: "11px",
+                      cursor: "pointer",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                    title="Clear error message"
+                  >
+                    <X size={12} />
+                    <span>Clear</span>
+                  </button>
                 </div>
               )}
 
               <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-                <button className="btn-secondary" onClick={() => setShowUploadModal(false)}>
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setUploadError("");
+                    setShowUploadModal(false);
+                  }}
+                >
                   Cancel
                 </button>
               </div>
