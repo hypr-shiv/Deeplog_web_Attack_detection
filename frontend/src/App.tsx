@@ -405,21 +405,43 @@ export default function App() {
       });
   }, []);
 
-  // Dynamic SEO title & meta title synchronizer across views
+  // Dynamic SEO title, meta title & meta description synchronizer across views
   useEffect(() => {
     let title = "DeepLog SIEM — Real-Time ML Cyber Threat Detection & Geolocation Platform";
+    let description =
+      "High-performance cybersecurity dashboard and SIEM platform ingesting system logs, classifying web attacks (SQLi, XSS, Path Traversal) via Random Forest ML, and geolocating threat actors in real time.";
+
     if (currentView === "landing") {
       title = "DeepLog SIEM — Real-Time ML Cyber Threat Detection & Geolocation Platform";
+      description =
+        "Zero-trust cybersecurity intelligence platform featuring real-time server log ingestion, 24-feature Random Forest ML web attack classification (SQLi, XSS, Path Traversal), and live global attacker geolocation.";
     } else if (currentView === "login") {
       title = "Analyst Authentication Portal — DeepLog SIEM";
+      description =
+        "Secure authentication portal for authorized SOC personnel. Protected by PBKDF2 HMAC-SHA256 password hashing, FIPS 140-2 TOTP MFA tokens, and sliding-window rate limiting defense.";
     } else if (currentView === "console") {
       title = "SOC Operations Console v2.4 — DeepLog SIEM";
+      description =
+        "Live security operations center workstation monitoring streaming ingress events, malicious payload triage, interactive risk probability distribution, and attacker geolocation mapping.";
     }
+
     document.title = title;
+
+    // Update meta titles
     const metaTitle = document.querySelector('meta[name="title"]');
     if (metaTitle) metaTitle.setAttribute("content", title);
     const ogTitle = document.querySelector('meta[property="og:title"]');
     if (ogTitle) ogTitle.setAttribute("content", title);
+    const twTitle = document.querySelector('meta[name="twitter:title"]');
+    if (twTitle) twTitle.setAttribute("content", title);
+
+    // Update meta descriptions
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) metaDesc.setAttribute("content", description);
+    const ogDesc = document.querySelector('meta[property="og:description"]');
+    if (ogDesc) ogDesc.setAttribute("content", description);
+    const twDesc = document.querySelector('meta[name="twitter:description"]');
+    if (twDesc) twDesc.setAttribute("content", description);
   }, [currentView]);
 
   // Real backend logout handler
