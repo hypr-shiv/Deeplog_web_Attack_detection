@@ -405,6 +405,23 @@ export default function App() {
       });
   }, []);
 
+  // Dynamic SEO title & meta title synchronizer across views
+  useEffect(() => {
+    let title = "DeepLog SIEM — Real-Time ML Cyber Threat Detection & Geolocation Platform";
+    if (currentView === "landing") {
+      title = "DeepLog SIEM — Real-Time ML Cyber Threat Detection & Geolocation Platform";
+    } else if (currentView === "login") {
+      title = "Analyst Authentication Portal — DeepLog SIEM";
+    } else if (currentView === "console") {
+      title = "SOC Operations Console v2.4 — DeepLog SIEM";
+    }
+    document.title = title;
+    const metaTitle = document.querySelector('meta[name="title"]');
+    if (metaTitle) metaTitle.setAttribute("content", title);
+    const ogTitle = document.querySelector('meta[property="og:title"]');
+    if (ogTitle) ogTitle.setAttribute("content", title);
+  }, [currentView]);
+
   // Real backend logout handler
   async function handleLogout() {
     setIsLoggingOut(true);
