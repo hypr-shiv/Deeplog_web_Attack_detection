@@ -6,12 +6,29 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.core.security_headers import SecurityHeadersMiddleware
-from app.core.rate_limiter import verify_ingest_rate_limit
+from app.core.rate_limiter import (
+    rate_limiter,
+    verify_api_rate_limit,
+    verify_auth_rate_limit,
+    verify_ingest_rate_limit,
+    verify_upload_rate_limit,
+)
 from app.core.auth_rbac import (
     Role,
     authenticate_user,
@@ -260,8 +277,16 @@ async def websocket_stream(websocket: WebSocket) -> None:
         manager.disconnect(websocket)
 
 
-@app.post(f"{settings.api_prefix}/auth/login", response_model=AuthUserResponse)
-@app.post(f"{settings.api_prefix}/auth/session", response_model=AuthUserResponse)
+@app.post(
+    f"{settings.api_prefix}/auth/login",
+    response_model=AuthUserResponse,
+    dependencies=[Depends(verify_auth_rate_limit)],
+)
+@app.post(
+    f"{settings.api_prefix}/auth/session",
+    response_model=AuthUserResponse,
+    dependencies=[Depends(verify_auth_rate_limit)],
+)
 def authenticate_analyst(payload: AnalystAuthRequest, response: Response) -> AuthUserResponse:
     """
     Authenticates analyst credentials against PBKDF2 hashed store and TOTP MFA.
@@ -389,7 +414,42 @@ def stream_status() -> dict[str, Any]:
 
 
 
-@app.post(f"{settings.api_prefix}/logs/upload")
+@app.get(f"{settings.api_prefix}/system/rate-limits")
+def get_rate_limits_info() -> dict[str, Any]:
+    """Exposes rate limiting policy parameters and active tracking metrics for SOC monitoring."""
+    return {
+        "status": "active",
+        "algorithm": "sliding_window_token_bucket",
+        "policies": {
+            "auth": {
+                "limit": 10,
+                "window_seconds": 60,
+                "target": "OWASP A07 Brute-force & Credential Stuffing Defense",
+            },
+            "ingest": {
+                "limit": 250,
+                "window_seconds": 60,
+                "target": "Application-layer DDoS & Ingestion Protection",
+            },
+            "upload": {
+                "limit": 10,
+                "window_seconds": 60,
+                "target": "Storage Exhaustion & Parser DoS Defense",
+            },
+            "api": {
+                "limit": 300,
+                "window_seconds": 60,
+                "target": "General REST API Throttling",
+            },
+        },
+        "stats": rate_limiter.get_stats(),
+    }
+
+
+@app.post(
+    f"{settings.api_prefix}/logs/upload",
+    dependencies=[Depends(verify_upload_rate_limit)],
+)
 async def upload_log(file: UploadFile = File(...)) -> dict[str, Any]:
     extension = Path(file.filename or "").suffix.lower().lstrip(".")
     if extension not in ALLOWED_EXTENSIONS:

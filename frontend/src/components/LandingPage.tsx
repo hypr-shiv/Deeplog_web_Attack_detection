@@ -414,8 +414,8 @@ username=admin' OR 1=1 --&auth_token=8f921a4e&redirect=/dashboard`}
           <div className="comp-chip">
             <CheckCircle2 size={16} style={{ color: "var(--color-emerald)" }} />
             <div>
-              <strong>DevSecOps Automated CI/CD</strong>
-              <span>Gitleaks, Semgrep SAST, Trivy Container & OWASP ZAP DAST gates</span>
+              <strong>Sliding-Window Rate Limiting</strong>
+              <span>RFC 6585 token bucket defense against brute-force & DDoS throttling</span>
             </div>
           </div>
         </div>

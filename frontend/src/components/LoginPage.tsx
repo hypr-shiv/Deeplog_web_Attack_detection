@@ -84,6 +84,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       const data = await res.json();
 
       if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error(
+            data.detail ||
+              "Rate limit exceeded (HTTP 429): Too many login attempts. Cooldown active for brute-force defense."
+          );
+        }
         throw new Error(data.detail || "Authentication rejected: Invalid credentials or incorrect passcode.");
       }
 
@@ -406,9 +412,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               <Lock size={11} />
               <span>HttpOnly Session</span>
             </div>
+            <div className="compliance-item" title="Sliding-window token bucket: 10 attempts/min">
+              <Shield size={11} style={{ color: "var(--color-amber)" }} />
+              <span>Rate Limited (10/min)</span>
+            </div>
             <div className="compliance-item">
               <Server size={11} />
-              <span>FIPS 140-2 Compatible</span>
+              <span>FIPS 140-2</span>
             </div>
           </div>
         </div>

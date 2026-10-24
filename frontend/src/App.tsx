@@ -767,7 +767,15 @@ export default function App() {
         body: formData,
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Upload validation failed");
+      if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error(
+            data.detail ||
+              "Upload rate limit exceeded (HTTP 429): Maximum 10 file uploads per minute. Request throttled for server stability."
+          );
+        }
+        throw new Error(data.detail || "Upload validation failed");
+      }
 
       if (Array.isArray(data.events) && data.events.length > 0) {
         const uploadedLogs: LogEntry[] = data.events.map((ev: any, idx: number) => {
@@ -962,6 +970,10 @@ export default function App() {
           <div className="telemetry-item">
             <Server size={13} />
             <span>Engine: <strong>DeepLog-RF-1.0</strong></span>
+          </div>
+          <div className="telemetry-item" title="Sliding-window token bucket defense active: 250 req/min (Ingest), 10 req/min (Auth)">
+            <ShieldCheck size={13} style={{ color: "var(--color-emerald)" }} />
+            <span>Rate Limiter: <strong>Active (250/m)</strong></span>
           </div>
         </div>
 
