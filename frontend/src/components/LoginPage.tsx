@@ -16,7 +16,7 @@ import {
   X,
   Mail,
 } from "lucide-react";
-import { apiRequest } from "../api";
+import { apiRequest, parseResponseData } from "../api";
 
 interface LoginPageProps {
   onLoginSuccess: (analystData: { id: string; email?: string; name: string; role: string }) => void;
@@ -93,7 +93,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }),
       });
 
-      const data = await res.json();
+      const data = await parseResponseData(res);
 
       if (!res.ok) {
         if (res.status === 429) {
@@ -173,7 +173,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }),
       });
 
-      const data = await res.json();
+      const data = await parseResponseData(res);
 
       if (!res.ok) {
         if (res.status === 429) {

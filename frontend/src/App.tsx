@@ -49,7 +49,7 @@ import {
 import SafeLogViewer from "./components/SafeLogViewer";
 import { LandingPage } from "./components/LandingPage";
 import { LoginPage } from "./components/LoginPage";
-import { apiRequest, getWebSocketUrl } from "./api";
+import { apiRequest, getWebSocketUrl, parseResponseData } from "./api";
 
 type Severity = "CRITICAL" | "WARNING" | "NORMAL";
 
@@ -390,7 +390,7 @@ export default function App() {
   // Verify active session on initial page load
   useEffect(() => {
     apiRequest("/api/v1/auth/me")
-      .then((res) => res.json())
+      .then((res) => parseResponseData(res))
       .then((data) => {
         if (data.authenticated && data.user) {
           setIsAuthenticated(true);
@@ -479,7 +479,7 @@ export default function App() {
       const res = await apiRequest("/api/v1/auth/account", {
         method: "DELETE",
       });
-      const data = await res.json();
+      const data = await parseResponseData(res);
       if (!res.ok) {
         throw new Error(data.detail || "Account deletion failed.");
       }
@@ -547,7 +547,7 @@ export default function App() {
   // Fetch backend historical events on mount
   useEffect(() => {
     apiRequest("/api/v1/events?limit=50")
-      .then((res) => res.json())
+      .then((res) => parseResponseData(res))
       .then((data) => {
         if (data && Array.isArray(data.items) && data.items.length > 0) {
           const mapped: LogEntry[] = data.items.map((ev: any, index: number) =>
@@ -680,7 +680,7 @@ export default function App() {
         method: "POST",
         body: JSON.stringify(probes[type]),
       });
-      const data = await res.json();
+      const data = await parseResponseData(res);
       setProbeNotice(
         `Live Ingested: ${data.prediction} (${data.risk || "Normal"} - ${Math.round(
           data.probability * 100
@@ -860,7 +860,7 @@ export default function App() {
         method: "POST",
         body: formData,
       });
-      const data = await res.json();
+      const data = await parseResponseData(res);
       if (!res.ok) {
         if (res.status === 429) {
           throw new Error(
@@ -1023,7 +1023,7 @@ export default function App() {
         }),
       });
 
-      const data = await res.json();
+      const data = await parseResponseData(res);
       if (!res.ok) {
         throw new Error(data.detail || "Alert dispatch request failed.");
       }
