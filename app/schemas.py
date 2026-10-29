@@ -23,6 +23,13 @@ class AnalystAuthRequest(BaseModel):
     role: str | None = None
 
 
+class AnalystRegisterRequest(BaseModel):
+    name: str = Field(min_length=1)
+    email: str = Field(min_length=3)
+    passcode: str = Field(min_length=8)
+    role: str = "ANALYST"
+
+
 class AuthUserResponse(BaseModel):
     authenticated: bool
     user: dict[str, Any] | None = None
@@ -81,3 +88,28 @@ class PageMeta(BaseModel):
 class EventListResponse(BaseModel):
     items: list[SecurityEvent]
     meta: PageMeta
+
+
+class AlertDispatchRequest(BaseModel):
+    channel: str = Field(description="'email', 'whatsapp', or 'both'")
+    recipient_email: str | None = None
+    recipient_phone: str | None = None
+    file_name: str = "server_access.log"
+    total_requests: int = 0
+    attacks_detected: int = 0
+    attack_rate: float = 0.0
+    critical_count: int = 0
+    attack_types: list[str] = Field(default_factory=list)
+    top_source_ips: list[str] = Field(default_factory=list)
+
+
+class AlertDispatchResponse(BaseModel):
+    audit_id: str
+    status: str
+    channels_dispatched: list[str]
+    email_status: dict[str, Any] | None = None
+    whatsapp_status: dict[str, Any] | None = None
+    timestamp: str
+    summary_preview: str
+    message: str
+

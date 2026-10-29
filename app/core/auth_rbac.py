@@ -117,22 +117,11 @@ def authenticate_user(
                 break
 
     if not user:
-        # Fallback for dynamic demo accounts
-        if clean_id.startswith("analyst") and passcode == "SecureAlex#2026!SOC":
-            return {
-                "id": "ALEX-TIER2",
-                "email": identifier,
-                "name": "Analyst Alex (Tier-2)",
-                "role": Role.ANALYST,
-                "mfa_verified": True,
-            }
         return None
 
-    # Check password
+    # Check password strictly via constant-time PBKDF2 hash verification
     if not verify_password(passcode, user["password_hash"]):
-        # Also allow matching raw passcode for initial bootstrap if hash fails
-        if passcode not in ("SecureAlex#2026!SOC", "AdminMaster#99201!DeepLog", "Demo#2026!SIEM"):
-            return None
+        return None
 
     # Verify MFA if code supplied
     mfa_verified = True
@@ -149,6 +138,46 @@ def authenticate_user(
         "name": user["name"],
         "role": user["role"],
         "mfa_verified": mfa_verified,
+    }
+
+
+def register_user(
+    email: str,
+    password: str,
+    name: str | None = None,
+    role: Role = Role.ANALYST,
+) -> dict[str, Any]:
+    """Registers a new analyst account with salted PBKDF2 HMAC-SHA256 password hash."""
+    clean_email = email.strip().lower()
+    if not clean_email or "@" not in clean_email:
+        raise ValueError("Valid corporate email address required (e.g. analyst@corp.internal).")
+    if clean_email in ANALYSTS_DIRECTORY:
+        raise ValueError("An account with this email address already exists.")
+    if len(password) < 8:
+        raise ValueError("Passcode must be at least 8 characters long.")
+
+    salt = os.urandom(16)
+    pwd_hash = hash_password(password, salt=salt)
+    user_id = f"ANALYST-{clean_email.split('@')[0].upper()[:8]}"
+    display_name = name.strip() if name and name.strip() else clean_email.split("@")[0].title()
+    totp_secret = pyotp.random_base32()
+
+    user = {
+        "id": user_id,
+        "email": clean_email,
+        "name": display_name,
+        "role": role,
+        "password_hash": pwd_hash,
+        "mfa_secret": totp_secret,
+        "accepted_mfa_codes": set(),
+    }
+    ANALYSTS_DIRECTORY[clean_email] = user
+    return {
+        "id": user["id"],
+        "email": user["email"],
+        "name": user["name"],
+        "role": user["role"],
+        "mfa_verified": True,
     }
 
 
@@ -286,14 +315,9 @@ def require_role(min_role: Role = Role.VIEWER, require_mfa: bool = False):
                 token = auth_header.split(" ", 1)[1]
 
         if not token:
-            # Return development analyst session when unauthenticated in local testing
-            return TokenPayload(
-                sub="analyst.alex@corp.internal",
-                id="ALEX-TIER2",
-                name="Analyst Alex (Tier-2)",
-                role=Role.ANALYST,
-                mfa_verified=True,
-                exp=datetime.now(timezone.utc) + timedelta(hours=8),
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required: No active session token found. Please sign in.",
             )
 
         payload_dict = decode_session_token(token)

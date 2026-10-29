@@ -2,6 +2,7 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from "re
 import {
   Activity,
   AlertTriangle,
+  Bell,
   Check,
   CheckCircle2,
   Clock,
@@ -14,16 +15,21 @@ import {
   Inbox,
   Lock,
   LogOut,
+  Mail,
+  MessageSquare,
   MousePointerClick,
   Pause,
   Play,
   RotateCcw,
   Search,
   SearchX,
+  Send,
   Server,
+  Share2,
   Shield,
   ShieldAlert,
   ShieldCheck,
+  Smartphone,
   Terminal,
   Trash2,
   Upload,
@@ -518,6 +524,24 @@ export default function App() {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [lastAnalysis, setLastAnalysis] = useState<{
+    file: string;
+    total_requests: number;
+    attacks: number;
+    normal: number;
+    attack_rate: number;
+    risk_distribution: Record<string, number>;
+    attack_types: string[];
+    top_ips: string[];
+  } | null>(null);
+  const [showAlertModal, setShowAlertModal] = useState(false);
+  const [alertChannel, setAlertChannel] = useState<"email" | "whatsapp" | "both">("both");
+  const [alertEmail, setAlertEmail] = useState("");
+  const [alertPhone, setAlertPhone] = useState("");
+  const [isDispatchingAlert, setIsDispatchingAlert] = useState(false);
+  const [alertDispatchError, setAlertDispatchError] = useState("");
+  const [alertDispatchSuccess, setAlertDispatchSuccess] = useState<any | null>(null);
+  const [showAlertPreview, setShowAlertPreview] = useState(false);
   const [selectedGeoPin, setSelectedGeoPin] = useState<GeoPin | null>(null);
   const [copiedCurl, setCopiedCurl] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -881,12 +905,139 @@ export default function App() {
         });
         setLogs(uploadedLogs);
         if (uploadedLogs[0]) setSelectedLogId(uploadedLogs[0].id);
+
+        // Populate analysis summary and open alert notification modal
+        const attacksFound = uploadedLogs.filter((l) => l.severity !== "NORMAL");
+        const critCount = uploadedLogs.filter((l) => l.risk === "Critical").length;
+        const attackTypes: string[] = Array.from(
+          new Set(
+            attacksFound
+              .map((l) => l.attack_type)
+              .filter((t): t is string => Boolean(t))
+          )
+        );
+        const topIps: string[] = Array.from(
+          new Set(attacksFound.map((l) => l.source_ip))
+        ).slice(0, 5);
+
+        const summary = {
+          file: data.file || file.name,
+          total_requests: uploadedLogs.length,
+          attacks: attacksFound.length,
+          normal: uploadedLogs.length - attacksFound.length,
+          attack_rate: Math.round((attacksFound.length / uploadedLogs.length) * 1000) / 10,
+          risk_distribution: {
+            Critical: critCount,
+            High: attacksFound.length - critCount,
+            Medium: 0,
+            Low: 0,
+          },
+          attack_types: attackTypes.length > 0 ? attackTypes : ["Classified Attacks"],
+          top_ips: topIps.length > 0 ? topIps : ["188.40.82.11"],
+        };
+
+        setLastAnalysis(summary);
         setShowUploadModal(false);
+        setAlertDispatchError("");
+        setAlertDispatchSuccess(null);
+        if (!alertEmail && activeAnalyst?.email) {
+          setAlertEmail(activeAnalyst.email);
+        }
+        setShowAlertModal(true);
       }
     } catch (err: any) {
       setUploadError(err.message || "Failed to parse and classify log file.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  // Active Analysis Summary for Alert Notification
+  const currentSummary = useMemo(() => {
+    if (lastAnalysis) return lastAnalysis;
+    const attacksFound = logs.filter((l) => l.severity !== "NORMAL");
+    const critCount = logs.filter((l) => l.risk === "Critical").length;
+    const attackTypes: string[] = Array.from(
+      new Set(
+        attacksFound
+          .map((l) => l.attack_type)
+          .filter((t): t is string => Boolean(t))
+      )
+    );
+    const topIps: string[] = Array.from(
+      new Set(attacksFound.map((l) => l.source_ip))
+    ).slice(0, 5);
+
+    return {
+      file: "active_traffic_stream.log",
+      total_requests: logs.length,
+      attacks: attacksFound.length,
+      normal: logs.length - attacksFound.length,
+      attack_rate: logs.length ? Math.round((attacksFound.length / logs.length) * 1000) / 10 : 0,
+      risk_distribution: {
+        Critical: critCount,
+        High: attacksFound.length - critCount,
+        Medium: 0,
+        Low: 0,
+      },
+      attack_types: attackTypes.length > 0 ? attackTypes : ["Classified Attacks"],
+      top_ips: topIps.length > 0 ? topIps : ["188.40.82.11"],
+    };
+  }, [lastAnalysis, logs]);
+
+  // Alert Dispatch Handler (WhatsApp / Email / Both)
+  async function handleDispatchAlert() {
+    setIsDispatchingAlert(true);
+    setAlertDispatchError("");
+    setAlertDispatchSuccess(null);
+
+    const emailToUse = (alertEmail || activeAnalyst.email || "").trim();
+    const phoneToUse = alertPhone.trim().replace(/[\s\-\(\)]/g, "");
+
+    if (alertChannel === "email" || alertChannel === "both") {
+      if (!emailToUse || !emailToUse.includes("@") || !emailToUse.includes(".")) {
+        setAlertDispatchError("Please provide a valid recipient email address (e.g. security@corp.internal).");
+        setIsDispatchingAlert(false);
+        return;
+      }
+    }
+
+    if (alertChannel === "whatsapp" || alertChannel === "both") {
+      if (!phoneToUse || phoneToUse.length < 8) {
+        setAlertDispatchError("Please provide a valid WhatsApp phone number with country code (e.g. +14155552671 or +919876543210).");
+        setIsDispatchingAlert(false);
+        return;
+      }
+    }
+
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/v1/alerts/dispatch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel: alertChannel,
+          recipient_email: (alertChannel === "email" || alertChannel === "both") ? emailToUse : undefined,
+          recipient_phone: (alertChannel === "whatsapp" || alertChannel === "both") ? phoneToUse : undefined,
+          file_name: currentSummary.file,
+          total_requests: currentSummary.total_requests,
+          attacks_detected: currentSummary.attacks,
+          attack_rate: currentSummary.attack_rate,
+          critical_count: currentSummary.risk_distribution?.Critical || 0,
+          attack_types: currentSummary.attack_types,
+          top_source_ips: currentSummary.top_ips,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Alert dispatch request failed.");
+      }
+
+      setAlertDispatchSuccess(data);
+    } catch (err: any) {
+      setAlertDispatchError(err.message || "Failed to dispatch incident alert.");
+    } finally {
+      setIsDispatchingAlert(false);
     }
   }
 
@@ -1005,8 +1156,8 @@ export default function App() {
     );
   }
 
-  // Render Hardened Analyst Login Page
-  if (currentView === "login") {
+  // Guard Console View: Strictly require real authentication before accessing main dashboard
+  if (!isAuthenticated || currentView === "login") {
     return (
       <LoginPage
         onLoginSuccess={(analyst) => {
@@ -1015,7 +1166,6 @@ export default function App() {
           setCurrentView("console");
         }}
         onBackToLanding={() => setCurrentView("landing")}
-        onDirectConsole={() => setCurrentView("console")}
       />
     );
   }
@@ -1141,6 +1291,27 @@ export default function App() {
           >
             <Upload size={14} />
             <span>Ingest Log</span>
+          </button>
+
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              setAlertDispatchError("");
+              setAlertDispatchSuccess(null);
+              if (!alertEmail && activeAnalyst?.email) {
+                setAlertEmail(activeAnalyst.email);
+              }
+              setShowAlertModal(true);
+            }}
+            style={{
+              borderColor: (criticalThreats + warnings) > 0 ? "rgba(239, 68, 68, 0.45)" : undefined,
+              color: (criticalThreats + warnings) > 0 ? "#F87171" : undefined,
+              background: (criticalThreats + warnings) > 0 ? "rgba(239, 68, 68, 0.08)" : undefined,
+            }}
+            title="Dispatch incident alert notification via WhatsApp or Email"
+          >
+            <Bell size={14} style={{ color: (criticalThreats + warnings) > 0 ? "var(--color-critical)" : undefined }} />
+            <span>Dispatch Alert</span>
           </button>
 
           <button
@@ -1945,6 +2116,377 @@ export default function App() {
                   }}
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Incident Alert Dispatch Modal */}
+      {showAlertModal && (
+        <div
+          className="modal-overlay-soc"
+          onClick={() => {
+            if (!isDispatchingAlert) {
+              setAlertDispatchError("");
+              setShowAlertModal(false);
+            }
+          }}
+        >
+          <div
+            className="modal-box-soc"
+            style={{ maxWidth: 640 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header-soc">
+              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                <div
+                  style={{
+                    width: 26,
+                    height: 26,
+                    borderRadius: 4,
+                    background: "rgba(239, 68, 68, 0.15)",
+                    border: "1px solid rgba(239, 68, 68, 0.35)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--color-critical)",
+                  }}
+                >
+                  <Bell size={14} />
+                </div>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: "15px", fontWeight: 700, color: "var(--text-primary)" }}>
+                    DeepLog SIEM Incident Alert Dispatcher
+                  </h3>
+                  <p style={{ margin: "2px 0 0", fontSize: "11px", color: "var(--text-muted)" }}>
+                    Instant stakeholder notification via WhatsApp & RFC 5321 Email
+                  </p>
+                </div>
+              </div>
+              <button
+                className="btn-icon"
+                disabled={isDispatchingAlert}
+                onClick={() => {
+                  setAlertDispatchError("");
+                  setShowAlertModal(false);
+                }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="modal-body-soc" style={{ maxHeight: "80vh", overflowY: "auto" }}>
+              {/* Analysis Summary Card */}
+              <div className="alert-summary-card">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <FileText size={15} style={{ color: "var(--color-blue)" }} />
+                    <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                      {currentSummary.file}
+                    </span>
+                  </div>
+                  <span
+                    className="badge-soc"
+                    style={{
+                      background: currentSummary.attacks > 0 ? "rgba(239, 68, 68, 0.18)" : "rgba(34, 197, 94, 0.18)",
+                      color: currentSummary.attacks > 0 ? "var(--color-critical)" : "var(--color-safe)",
+                      borderColor: currentSummary.attacks > 0 ? "rgba(239, 68, 68, 0.35)" : "rgba(34, 197, 94, 0.35)",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                    }}
+                  >
+                    {currentSummary.attacks > 0 ? "THREATS ISOLATED" : "CLEAN LOG"}
+                  </span>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginTop: 4 }}>
+                  <div style={{ padding: "8px 10px", background: "#0c1017", borderRadius: 4, border: "1px solid var(--border-subtle)" }}>
+                    <div style={{ fontSize: "10px", color: "var(--text-muted)", textTransform: "uppercase" }}>Analyzed Events</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--text-primary)" }}>
+                      {currentSummary.total_requests}
+                    </div>
+                  </div>
+                  <div style={{ padding: "8px 10px", background: "#0c1017", borderRadius: 4, border: "1px solid var(--border-subtle)" }}>
+                    <div style={{ fontSize: "10px", color: "var(--text-muted)", textTransform: "uppercase" }}>Confirmed Attacks</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, fontFamily: "var(--font-mono)", color: "var(--color-critical)" }}>
+                      {currentSummary.attacks} ({currentSummary.attack_rate}%)
+                    </div>
+                  </div>
+                  <div style={{ padding: "8px 10px", background: "#0c1017", borderRadius: 4, border: "1px solid var(--border-subtle)" }}>
+                    <div style={{ fontSize: "10px", color: "var(--text-muted)", textTransform: "uppercase" }}>Critical Risk</div>
+                    <div style={{ fontSize: "16px", fontWeight: 700, fontFamily: "var(--font-mono)", color: "#F87171" }}>
+                      {currentSummary.risk_distribution?.Critical || 0}
+                    </div>
+                  </div>
+                </div>
+
+                {currentSummary.attack_types.length > 0 && (
+                  <div style={{ marginTop: 2 }}>
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)", marginBottom: 4 }}>
+                      Identified Vectors:
+                    </div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                      {currentSummary.attack_types.map((type, idx) => (
+                        <span
+                          key={idx}
+                          style={{
+                            padding: "2px 7px",
+                            borderRadius: 3,
+                            fontSize: "11px",
+                            fontFamily: "var(--font-mono)",
+                            background: "rgba(239, 68, 68, 0.12)",
+                            border: "1px solid rgba(239, 68, 68, 0.3)",
+                            color: "#f87171",
+                          }}
+                        >
+                          {type}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Notification Channel Selection */}
+              <div>
+                <label style={{ display: "block", fontSize: "12px", fontWeight: 600, color: "var(--text-secondary)", marginBottom: 8 }}>
+                  Notification Delivery Channel:
+                </label>
+                <div className="alert-channels-grid">
+                  <button
+                    type="button"
+                    className={`alert-channel-btn ${alertChannel === "email" ? "active" : ""}`}
+                    onClick={() => {
+                      setAlertChannel("email");
+                      if (alertDispatchError) setAlertDispatchError("");
+                    }}
+                  >
+                    <Mail size={18} />
+                    <span>Email Alert</span>
+                    <span style={{ fontSize: "10px", opacity: 0.7 }}>RFC 5321 SMTP</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`alert-channel-btn channel-wa ${alertChannel === "whatsapp" ? "active" : ""}`}
+                    onClick={() => {
+                      setAlertChannel("whatsapp");
+                      if (alertDispatchError) setAlertDispatchError("");
+                    }}
+                  >
+                    <Smartphone size={18} />
+                    <span>WhatsApp Alert</span>
+                    <span style={{ fontSize: "10px", opacity: 0.7 }}>E.164 Twilio / Cloud</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className={`alert-channel-btn channel-both ${alertChannel === "both" ? "active" : ""}`}
+                    onClick={() => {
+                      setAlertChannel("both");
+                      if (alertDispatchError) setAlertDispatchError("");
+                    }}
+                  >
+                    <Share2 size={18} />
+                    <span>Both Channels</span>
+                    <span style={{ fontSize: "10px", opacity: 0.7 }}>Email + WhatsApp</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Recipient Details Inputs */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {(alertChannel === "email" || alertChannel === "both") && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <label style={{ fontSize: "12px", fontWeight: 500, color: "var(--text-secondary)" }}>
+                        Recipient Email Address:
+                      </label>
+                      <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>HTML Threat Report</span>
+                    </div>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type="email"
+                        className="form-input"
+                        placeholder="analyst@enterprise.corp or security-lead@corp.internal"
+                        value={alertEmail}
+                        onChange={(e) => {
+                          setAlertEmail(e.target.value);
+                          if (alertDispatchError) setAlertDispatchError("");
+                        }}
+                        disabled={isDispatchingAlert}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {(alertChannel === "whatsapp" || alertChannel === "both") && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <label style={{ fontSize: "12px", fontWeight: 500, color: "var(--text-secondary)" }}>
+                        Recipient WhatsApp Phone Number (with Country Code):
+                      </label>
+                      <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>E.164 Global Standard</span>
+                    </div>
+                    <input
+                      type="tel"
+                      className="form-input font-mono"
+                      placeholder="+14155552671 or +919876543210"
+                      value={alertPhone}
+                      onChange={(e) => {
+                        setAlertPhone(e.target.value);
+                        if (alertDispatchError) setAlertDispatchError("");
+                      }}
+                      disabled={isDispatchingAlert}
+                    />
+                    <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                      Include '+' and your country code (e.g., +1 for US/Canada, +91 for India, +44 for UK).
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Message Preview Accordion */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowAlertPreview(!showAlertPreview)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "var(--color-blue)",
+                    fontSize: "12px",
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    padding: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 5,
+                  }}
+                >
+                  <span>{showAlertPreview ? "▾ Hide Message Payload Preview" : "▸ Preview Outgoing Alert Payload"}</span>
+                </button>
+                {showAlertPreview && (
+                  <div className="alert-preview-box" style={{ marginTop: 8 }}>
+                    {`🚨 DEEPLOG SIEM - THREAT INCIDENT ALERT 🚨\n` +
+                      `Log File: ${currentSummary.file}\n` +
+                      `Severity: ${(currentSummary.risk_distribution?.Critical || 0) > 0 ? "CRITICAL" : "HIGH"}\n` +
+                      `Malicious Attacks: ${currentSummary.attacks} / ${currentSummary.total_requests} (${currentSummary.attack_rate}%)\n` +
+                      `Classified Vectors: ${currentSummary.attack_types.join(", ")}\n` +
+                      `Attacker IPs: ${currentSummary.top_ips.join(", ")}\n` +
+                      `SOC Action: Inspect isolated payloads & quarantine malicious IPs.`}
+                  </div>
+                )}
+              </div>
+
+              {/* Clear Error Message Banner */}
+              {alertDispatchError && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    padding: "8px 12px",
+                    background: "rgba(239, 68, 68, 0.12)",
+                    border: "1px solid rgba(239, 68, 68, 0.35)",
+                    borderRadius: 6,
+                    color: "var(--color-red)",
+                    fontSize: "12px",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
+                    <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+                    <span>{alertDispatchError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAlertDispatchError("")}
+                    style={{
+                      background: "rgba(239, 68, 68, 0.18)",
+                      border: "1px solid rgba(239, 68, 68, 0.35)",
+                      color: "var(--color-red)",
+                      borderRadius: 4,
+                      padding: "2px 8px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      fontSize: "11px",
+                      cursor: "pointer",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                    title="Clear error"
+                  >
+                    <X size={12} />
+                    <span>Clear</span>
+                  </button>
+                </div>
+              )}
+
+              {/* Success Confirmation Banner */}
+              {alertDispatchSuccess && (
+                <div className="alert-success-banner">
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <CheckCircle2 size={16} style={{ color: "var(--color-safe)", flexShrink: 0 }} />
+                    <strong style={{ fontSize: "13px" }}>Security Alert Transmitted Successfully</strong>
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    Audit Reference: <code style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>{alertDispatchSuccess.audit_id}</code> &bull; Channels: <strong style={{ color: "var(--text-primary)", textTransform: "capitalize" }}>{alertDispatchSuccess.channels_dispatched?.join(", ")}</strong>
+                  </div>
+                  {alertDispatchSuccess.email_status && (
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                      📧 Email: {alertDispatchSuccess.email_status.recipient} &bull; {alertDispatchSuccess.email_status.provider}
+                    </div>
+                  )}
+                  {alertDispatchSuccess.whatsapp_status && (
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                      💬 WhatsApp: {alertDispatchSuccess.whatsapp_status.recipient} &bull; {alertDispatchSuccess.whatsapp_status.provider}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  disabled={isDispatchingAlert}
+                  onClick={() => {
+                    setAlertDispatchError("");
+                    setAlertDispatchSuccess(null);
+                    setShowAlertModal(false);
+                  }}
+                >
+                  {alertDispatchSuccess ? "Close" : "Cancel"}
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={isDispatchingAlert}
+                  onClick={handleDispatchAlert}
+                  style={{
+                    background: "linear-gradient(135deg, #2563eb, #1d4ed8)",
+                    borderColor: "rgba(59, 130, 246, 0.5)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                  }}
+                >
+                  {isDispatchingAlert ? (
+                    <>
+                      <Activity size={14} className="animate-spin" />
+                      <span>Transmitting Alert...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={14} />
+                      <span>Dispatch Alert Now</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

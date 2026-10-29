@@ -19,6 +19,7 @@ import {
   LogOut,
   Trash2,
   User,
+  UserPlus,
 } from "lucide-react";
 
 interface LandingPageProps {
@@ -141,8 +142,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </button>
           )}
 
-          <button className="btn-primary" onClick={onOpenConsole}>
-            <span>Launch SOC Console</span>
+          <button
+            className="btn-primary"
+            onClick={isAuthenticated ? onOpenConsole : onOpenLogin}
+          >
+            <span>{isAuthenticated ? "Launch SOC Console" : "Sign In to Access"}</span>
             <ArrowRight size={13} />
           </button>
         </div>
@@ -165,14 +169,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </p>
 
         <div className="hero-cta-group">
-          <button className="btn-primary hero-btn-main" onClick={onOpenConsole}>
+          <button
+            className="btn-primary hero-btn-main"
+            onClick={isAuthenticated ? onOpenConsole : onOpenLogin}
+          >
             <Terminal size={15} />
-            <span>Open SOC Workstation</span>
+            <span>{isAuthenticated ? "Open SOC Workstation" : "Sign In to Access Workstation"}</span>
           </button>
-          <button className="btn-secondary hero-btn-sub" onClick={onOpenLogin}>
-            <Lock size={14} />
-            <span>Analyst Sign-In</span>
-          </button>
+          {!isAuthenticated && (
+            <button className="btn-secondary hero-btn-sub" onClick={onOpenLogin}>
+              <UserPlus size={14} />
+              <span>Create Account</span>
+            </button>
+          )}
         </div>
 
         {/* Live Interactive Telemetry Preview Box */}
@@ -450,14 +459,24 @@ username=admin' OR 1=1 --&auth_token=8f921a4e&redirect=/dashboard`}
           credentials.
         </p>
         <div className="cta-banner-buttons">
-          <button className="btn-primary hero-btn-main" onClick={onOpenConsole}>
+          <button
+            className="btn-primary hero-btn-main"
+            onClick={isAuthenticated ? onOpenConsole : onOpenLogin}
+          >
             <Terminal size={15} />
-            <span>Launch Live Console</span>
+            <span>{isAuthenticated ? "Launch Live Console" : "Sign In to Access Console"}</span>
           </button>
-          <button className="btn-secondary hero-btn-sub" onClick={onOpenLogin}>
-            <Lock size={14} />
-            <span>Analyst Authentication</span>
-          </button>
+          {!isAuthenticated ? (
+            <button className="btn-secondary hero-btn-sub" onClick={onOpenLogin}>
+              <UserPlus size={14} />
+              <span>Create Account</span>
+            </button>
+          ) : (
+            <button className="btn-secondary hero-btn-sub" onClick={onLogout}>
+              <LogOut size={14} />
+              <span>Sign Out</span>
+            </button>
+          )}
         </div>
       </section>
 

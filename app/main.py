@@ -36,17 +36,22 @@ from app.core.auth_rbac import (
     create_session_cookie,
     delete_user_account,
     get_current_user_from_request,
+    register_user,
     require_role,
 )
 from app.models.event_schema import encrypt_sensitive_payload, decrypt_sensitive_payload
 from app.schemas import (
+    AlertDispatchRequest,
+    AlertDispatchResponse,
     AnalystAuthRequest,
+    AnalystRegisterRequest,
     AuthUserResponse,
     EventListResponse,
     LoginRequest,
     PageMeta,
     TokenResponse,
 )
+from app.services.alert_service import alert_service
 from app.services.geo_service import geo_service
 from app.services.ingestion import parse_csv_rows, parse_text_rows
 from app.services.ml_service import ml_service
@@ -276,6 +281,49 @@ async def websocket_stream(websocket: WebSocket) -> None:
                 streamer.start()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
+
+
+@app.post(
+    f"{settings.api_prefix}/auth/register",
+    response_model=AuthUserResponse,
+    dependencies=[Depends(verify_auth_rate_limit)],
+)
+@app.post(
+    f"{settings.api_prefix}/auth/signup",
+    response_model=AuthUserResponse,
+    dependencies=[Depends(verify_auth_rate_limit)],
+)
+def register_analyst(payload: AnalystRegisterRequest, response: Response) -> AuthUserResponse:
+    """
+    Registers a new analyst account with salted PBKDF2 HMAC-SHA256 password hash.
+    Automatically establishes an authenticated HttpOnly session cookie.
+    """
+    try:
+        user = register_user(
+            email=payload.email,
+            password=payload.passcode,
+            name=payload.name,
+            role=Role(payload.role) if payload.role in Role.__members__ else Role.ANALYST,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+
+    token_jwt = create_session_cookie(response, user=user)
+    return AuthUserResponse(
+        authenticated=True,
+        user={
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"].value if hasattr(user["role"], "value") else str(user["role"]),
+            "mfa_verified": True,
+        },
+        token=token_jwt,
+        message="Account created successfully! Session cookie established.",
+    )
 
 
 @app.post(
@@ -520,6 +568,53 @@ async def upload_log(file: UploadFile = File(...)) -> dict[str, Any]:
 @app.get(f"{settings.api_prefix}/logs/history")
 def history() -> dict[str, Any]:
     return {"items": store.analyses, "total": len(store.analyses)}
+
+
+@app.post(
+    f"{settings.api_prefix}/alerts/dispatch",
+    response_model=AlertDispatchResponse,
+    dependencies=[Depends(verify_api_rate_limit)],
+)
+async def dispatch_alert(payload: AlertDispatchRequest) -> AlertDispatchResponse:
+    """
+    Dispatches security incident notification following log file analysis
+    via WhatsApp (E.164 phone) and/or Email (RFC 5321 SMTP).
+    """
+    try:
+        result = alert_service.dispatch_alert(
+            channel=payload.channel,
+            file_name=payload.file_name,
+            total_requests=payload.total_requests,
+            attacks_detected=payload.attacks_detected,
+            attack_rate=payload.attack_rate,
+            critical_count=payload.critical_count,
+            attack_types=payload.attack_types,
+            top_source_ips=payload.top_source_ips,
+            recipient_email=payload.recipient_email,
+            recipient_phone=payload.recipient_phone,
+        )
+        # Broadcast alert dispatch audit event across WebSocket
+        await manager.broadcast({
+            "type": "ALERT_DISPATCHED",
+            "audit_id": result["audit_id"],
+            "channel": payload.channel,
+            "file": payload.file_name,
+            "status": result["status"],
+            "timestamp": result["timestamp"],
+        })
+        return AlertDispatchResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to dispatch incident alert: {e}") from e
+
+
+@app.get(f"{settings.api_prefix}/alerts/history")
+def get_alert_history() -> dict[str, Any]:
+    """Retrieves chronological audit log of all transmitted alerts."""
+    items = alert_service.get_history()
+    return {"items": items, "total": len(items)}
+
 
 
 @app.get(f"{settings.api_prefix}/events", response_model=EventListResponse)
