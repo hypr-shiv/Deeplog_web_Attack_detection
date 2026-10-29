@@ -49,6 +49,7 @@ import {
 import SafeLogViewer from "./components/SafeLogViewer";
 import { LandingPage } from "./components/LandingPage";
 import { LoginPage } from "./components/LoginPage";
+import { apiRequest, getWebSocketUrl } from "./api";
 
 type Severity = "CRITICAL" | "WARNING" | "NORMAL";
 
@@ -388,9 +389,7 @@ export default function App() {
 
   // Verify active session on initial page load
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/v1/auth/me", {
-      credentials: "include",
-    })
+    apiRequest("/api/v1/auth/me")
       .then((res) => res.json())
       .then((data) => {
         if (data.authenticated && data.user) {
@@ -454,9 +453,8 @@ export default function App() {
   async function handleLogout() {
     setIsLoggingOut(true);
     try {
-      await fetch("http://127.0.0.1:8000/api/v1/auth/logout", {
+      await apiRequest("/api/v1/auth/logout", {
         method: "POST",
-        credentials: "include",
       });
     } catch (e) {
       console.warn("Logout request failed:", e);
@@ -478,9 +476,8 @@ export default function App() {
     setIsDeletingAccount(true);
     setDeleteAccountError("");
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/auth/account", {
+      const res = await apiRequest("/api/v1/auth/account", {
         method: "DELETE",
-        credentials: "include",
       });
       const data = await res.json();
       if (!res.ok) {
@@ -549,7 +546,7 @@ export default function App() {
 
   // Fetch backend historical events on mount
   useEffect(() => {
-    fetch("http://127.0.0.1:8000/api/v1/events?limit=50")
+    apiRequest("/api/v1/events?limit=50")
       .then((res) => res.json())
       .then((data) => {
         if (data && Array.isArray(data.items) && data.items.length > 0) {
@@ -574,7 +571,7 @@ export default function App() {
     function connect() {
       if (isUnmounted) return;
       try {
-        const wsUrl = "ws://127.0.0.1:8000/api/v1/stream/ws";
+        const wsUrl = getWebSocketUrl();
         socket = new WebSocket(wsUrl);
         wsRef.current = socket;
 
@@ -633,7 +630,7 @@ export default function App() {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(nextState ? "resume" : "pause");
     }
-    fetch(`http://127.0.0.1:8000/api/v1/stream/${nextState ? "start" : "stop"}`, {
+    apiRequest(`/api/v1/stream/${nextState ? "start" : "stop"}`, {
       method: "POST",
     }).catch(() => {});
   }
@@ -679,9 +676,8 @@ export default function App() {
     };
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/ingest/event", {
+      const res = await apiRequest("/api/v1/ingest/event", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(probes[type]),
       });
       const data = await res.json();
@@ -860,7 +856,7 @@ export default function App() {
     formData.append("file", file);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/logs/upload", {
+      const res = await apiRequest("/api/v1/logs/upload", {
         method: "POST",
         body: formData,
       });
@@ -1011,9 +1007,8 @@ export default function App() {
     }
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/alerts/dispatch", {
+      const res = await apiRequest("/api/v1/alerts/dispatch", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           channel: alertChannel,
           recipient_email: (alertChannel === "email" || alertChannel === "both") ? emailToUse : undefined,

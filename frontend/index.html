@@ -15,7 +15,7 @@
         style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
         font-src 'self' https://fonts.gstatic.com;
         img-src 'self' data: https://*.tile.openstreetmap.org https://basemaps.cartocdn.com;
-        connect-src 'self' ws://127.0.0.1:8000 ws://127.0.0.1:5173 wss://* http://127.0.0.1:8000 http://127.0.0.1:5173;
+        connect-src 'self' ws://127.0.0.1:8000 ws://localhost:8000 ws://127.0.0.1:5173 ws://localhost:5173 ws://127.0.0.1:* ws://localhost:* wss://* http://127.0.0.1:8000 http://localhost:8000 http://127.0.0.1:5173 http://localhost:5173;
         worker-src 'self' blob:;
         child-src 'self' blob:;
         object-src 'none';

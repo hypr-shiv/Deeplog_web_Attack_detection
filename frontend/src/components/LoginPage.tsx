@@ -16,6 +16,7 @@ import {
   X,
   Mail,
 } from "lucide-react";
+import { apiRequest } from "../api";
 
 interface LoginPageProps {
   onLoginSuccess: (analystData: { id: string; email?: string; name: string; role: string }) => void;
@@ -83,10 +84,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }, 500);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/auth/login", {
+      const res = await apiRequest("/api/v1/auth/login", {
         method: "POST",
-        credentials: "include", // Transmits and receives HttpOnly session cookie
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           analyst_id: analystId.trim(),
           passcode: passcode,
@@ -164,10 +163,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }, 500);
 
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/v1/auth/register", {
+      const res = await apiRequest("/api/v1/auth/register", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: regName.trim(),
           email: regEmail.trim(),
